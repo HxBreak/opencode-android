@@ -1,0 +1,56 @@
+package me.xiaok.opencode.ui.screens.sessions.SessionListViewModelTest
+
+import androidx.lifecycle.SavedStateHandle
+import io.mockk.*
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import me.xiaok.opencode.data.api.OpenCodeApi
+import me.xiaok.opencode.data.repository.CacheRepository
+import me.xiaok.opencode.data.repository.EventReducer
+import me.xiaok.opencode.data.repository.ServerRepository
+import me.xiaok.opencode.data.repository.SettingsRepository
+import me.xiaok.opencode.domain.model.*
+import me.xiaok.opencode.fixtures.TestFixtures
+import me.xiaok.opencode.utils.CoroutineTestRule
+import org.junit.After
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], manifest = Config.NONE)
+class SessionListViewModelTest {
+
+    @get:Rule
+    val coroutineRule = CoroutineTestRule()
+
+    private val serverId = "server_local"
+    private val api = mockk<OpenCodeApi>(relaxed = true)
+    private val serverRepository = mockk<ServerRepository>(relaxed = true)
+    private val settingsRepository = mockk<SettingsRepository>(relaxed = true)
+    private val cacheRepository = mockk<CacheRepository>(relaxed = true)
+
+    private lateinit var testScope: TestScope
+    private lateinit var eventReducer: EventReducer
+
+    private val testServer = TestFixtures.testServerConnection(id = serverId)
+)
+    private val testSession1 = TestFixtures.testSession(id = "ses_1", title = "Session 1")
+    private val testSession2 = TestFixtures.testSession(id = "ses_2", title = "Session 2")
+
+    private val testSessions = listOf(testSession1, testSession2)
+
+    private fun createViewModel(directory: String? = null): SessionListViewModel(
+        savedStateHandle, api, eventReducer, serverRepository, settingsRepository)
+    }
+

@@ -1,0 +1,248 @@
+package me.xiaok.opencode.ui.screens.settings
+
+import io.mockk.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import me.xiaok.opencode.data.repository.SettingsRepository
+import me.xiaok.opencode.utils.CoroutineTestRule
+import org.junit.After
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28])
+class SettingsViewModelTest {
+
+    @get:Rule
+    val coroutineTestRule = CoroutineTestRule()
+
+    private lateinit var settingsRepository: SettingsRepository
+    private lateinit var viewModel: SettingsViewModel
+
+    private val themeFlow = MutableStateFlow("system")
+    private val dynamicColorFlow = MutableStateFlow(true)
+    private val amoledDarkFlow = MutableStateFlow(false)
+    private val reconnectModeFlow = MutableStateFlow("normal")
+    private val chatFontSizeFlow = MutableStateFlow("medium")
+    private val compactMessagesFlow = MutableStateFlow(false)
+    private val codeWordWrapFlow = MutableStateFlow(true)
+    private val collapseToolsFlow = MutableStateFlow(false)
+    private val initialMessagesFlow = MutableStateFlow(50)
+    private val confirmSendFlow = MutableStateFlow(false)
+    private val hapticFeedbackFlow = MutableStateFlow(true)
+    private val imageCompressFlow = MutableStateFlow(true)
+    private val notificationsEnabledFlow = MutableStateFlow(true)
+    private val keepScreenOnFlow = MutableStateFlow(false)
+    private val imageMaxSideFlow = MutableStateFlow(2048)
+    private val imageWebPQualityFlow = MutableStateFlow(70)
+    private val terminalFontSizeFlow = MutableStateFlow(12)
+    private val notificationsSilentFlow = MutableStateFlow(false)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Before
+    fun setup() {
+        Dispatchers.setMain(coroutineTestRule.testDispatcher)
+
+        settingsRepository = mockk()
+        every { settingsRepository.theme } returns themeFlow
+        every { settingsRepository.dynamicColor } returns dynamicColorFlow
+        every { settingsRepository.amoledDark } returns amoledDarkFlow
+        every { settingsRepository.reconnectMode } returns reconnectModeFlow
+        every { settingsRepository.chatFontSize } returns chatFontSizeFlow
+        every { settingsRepository.compactMessages } returns compactMessagesFlow
+        every { settingsRepository.codeWordWrap } returns codeWordWrapFlow
+        every { settingsRepository.collapseTools } returns collapseToolsFlow
+        every { settingsRepository.initialMessages } returns initialMessagesFlow
+        every { settingsRepository.confirmSend } returns confirmSendFlow
+        every { settingsRepository.hapticFeedback } returns hapticFeedbackFlow
+        every { settingsRepository.imageCompress } returns imageCompressFlow
+        every { settingsRepository.notificationsEnabled } returns notificationsEnabledFlow
+        every { settingsRepository.keepScreenOn } returns keepScreenOnFlow
+        every { settingsRepository.imageMaxSide } returns imageMaxSideFlow
+        every { settingsRepository.imageWebPQuality } returns imageWebPQualityFlow
+        every { settingsRepository.terminalFontSize } returns terminalFontSizeFlow
+        every { settingsRepository.notificationsSilent } returns notificationsSilentFlow
+
+        coEvery { settingsRepository.setTheme(any()) } just Awaits
+        coEvery { settingsRepository.setDynamicColor(any()) } just Awaits
+        coEvery { settingsRepository.setAmoledDark(any()) } just Awaits
+        coEvery { settingsRepository.setReconnectMode(any()) } just Awaits
+        coEvery { settingsRepository.setChatFontSize(any()) } just Awaits
+        coEvery { settingsRepository.setCompactMessages(any()) } just Awaits
+        coEvery { settingsRepository.setCodeWordWrap(any()) } just Awaits
+        coEvery { settingsRepository.setCollapseTools(any()) } just Awaits
+        coEvery { settingsRepository.setInitialMessages(any()) } just Awaits
+        coEvery { settingsRepository.setConfirmSend(any()) } just Awaits
+        coEvery { settingsRepository.setHapticFeedback(any()) } just Awaits
+        coEvery { settingsRepository.setImageCompress(any()) } just Awaits
+        coEvery { settingsRepository.setNotificationsEnabled(any()) } just Awaits
+        coEvery { settingsRepository.setKeepScreenOn(any()) } just Awaits
+        coEvery { settingsRepository.setImageMaxSide(any()) } just Awaits
+        coEvery { settingsRepository.setImageWebPQuality(any()) } just Awaits
+        coEvery { settingsRepository.setTerminalFontSize(any()) } just Awaits
+        coEvery { settingsRepository.setNotificationsSilent(any()) } just Awaits
+
+        viewModel = SettingsViewModel(settingsRepository)
+    }
+
+    @After
+    fun tearDown() {
+    }
+
+    @Test
+    fun `uiState reflects all 18 settings from repository`() = runTest {
+        val state = viewModel.uiState.value
+
+        assert(state.theme == "system")
+        assert(state.dynamicColor == true)
+        assert(state.amoledDark == false)
+        assert(state.reconnectMode == "normal")
+        assert(state.chatFontSize == "medium")
+        assert(state.compactMessages == false)
+        assert(state.codeWordWrap == true)
+        assert(state.collapseTools == false)
+        assert(state.initialMessages == 50)
+        assert(state.confirmSend == false)
+        assert(state.hapticFeedback == true)
+        assert(state.imageCompress == true)
+        assert(state.notificationsEnabled == true)
+        assert(state.keepScreenOn == false)
+        assert(state.imageMaxSide == 2048)
+        assert(state.imageWebPQuality == 70)
+        assert(state.terminalFontSize == 12)
+        assert(state.notificationsSilent == false)
+    }
+
+    @Test
+    fun `setTheme delegates to repository`() = runTest {
+        viewModel.setTheme("dark")
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setTheme("dark") }
+    }
+
+    @Test
+    fun `setDynamicColor delegates to repository`() = runTest {
+        viewModel.setDynamicColor(false)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setDynamicColor(false) }
+    }
+
+    @Test
+    fun `setAmoledDark delegates to repository`() = runTest {
+        viewModel.setAmoledDark(true)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setAmoledDark(true) }
+    }
+
+    @Test
+    fun `setReconnectMode delegates to repository`() = runTest {
+        viewModel.setReconnectMode("aggressive")
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setReconnectMode("aggressive") }
+    }
+
+    @Test
+    fun `setChatFontSize delegates to repository`() = runTest {
+        viewModel.setChatFontSize("large")
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setChatFontSize("large") }
+    }
+
+    @Test
+    fun `setCompactMessages delegates to repository`() = runTest {
+        viewModel.setCompactMessages(true)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setCompactMessages(true) }
+    }
+
+    @Test
+    fun `setCodeWordWrap delegates to repository`() = runTest {
+        viewModel.setCodeWordWrap(false)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setCodeWordWrap(false) }
+    }
+
+    @Test
+    fun `setCollapseTools delegates to repository`() = runTest {
+        viewModel.setCollapseTools(true)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setCollapseTools(true) }
+    }
+
+    @Test
+    fun `setInitialMessages delegates to repository`() = runTest {
+        viewModel.setInitialMessages(100)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setInitialMessages(100) }
+    }
+
+    @Test
+    fun `setConfirmSend delegates to repository`() = runTest {
+        viewModel.setConfirmSend(true)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setConfirmSend(true) }
+    }
+
+    @Test
+    fun `setHapticFeedback delegates to repository`() = runTest {
+        viewModel.setHapticFeedback(false)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setHapticFeedback(false) }
+    }
+
+    @Test
+    fun `setImageCompress delegates to repository`() = runTest {
+        viewModel.setImageCompress(false)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setImageCompress(false) }
+    }
+
+    @Test
+    fun `setNotificationsEnabled delegates to repository`() = runTest {
+        viewModel.setNotificationsEnabled(false)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setNotificationsEnabled(false) }
+    }
+
+    @Test
+    fun `setKeepScreenOn delegates to repository`() = runTest {
+        viewModel.setKeepScreenOn(true)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setKeepScreenOn(true) }
+    }
+
+    @Test
+    fun `setImageMaxSide delegates to repository`() = runTest {
+        viewModel.setImageMaxSide(4096)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setImageMaxSide(4096) }
+    }
+
+    @Test
+    fun `setImageWebPQuality delegates to repository`() = runTest {
+        viewModel.setImageWebPQuality(90)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setImageWebPQuality(90) }
+    }
+
+    @Test
+    fun `setTerminalFontSize delegates to repository`() = runTest {
+        viewModel.setTerminalFontSize(16)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setTerminalFontSize(16) }
+    }
+
+    @Test
+    fun `setNotificationsSilent delegates to repository`() = runTest {
+        viewModel.setNotificationsSilent(true)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { settingsRepository.setNotificationsSilent(true) }
+    }
+}

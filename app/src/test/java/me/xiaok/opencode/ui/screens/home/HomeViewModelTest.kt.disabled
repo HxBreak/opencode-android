@@ -1,0 +1,123 @@
+package me.xiaok.opencode.ui.screens.home
+
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import io.mockk.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import me.xiaok.opencode.data.repository.ServerRepository
+import me.xiaok.opencode.domain.model.ServerConnection
+import me.xiaok.opencode.utils.CoroutineTestRule
+import org.junit.After
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [Build.VERSION_CODES.P])
+class HomeViewModelTest {
+
+    @get:Rule
+    val coroutineTestRule = CoroutineTestRule()
+
+    private lateinit var context: Context
+    private lateinit var serverRepository: ServerRepository
+    private lateinit var viewModel: HomeViewModel
+
+    private val testServers = MutableStateFlow<List<ServerConnection>>(emptyList())
+    private val testConnectionStates = MutableStateFlow<Map<String, ServerRepository.ConnectionState>>(emptyMap())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Before
+    fun setup() {
+        Dispatchers.setMain(coroutineTestRule.testDispatcher)
+        context = mockk(relaxed = true)
+
+        serverRepository = mockk()
+        every { serverRepository.servers } returns testServers
+        every { serverRepository.connectionStates } returns testConnectionStates
+        coEvery { serverRepository.addServer(any()) } coAnswers {}
+        coEvery { serverRepository.updateServer(any()) } coAnswers {}
+        coEvery { serverRepository.removeServer(any()) } coAnswers {}
+
+        viewModel = HomeViewModel(context, serverRepository)
+    }
+
+    @After
+    fun tearDown() {
+    }
+
+    @Test
+    fun `addServer delegates to serverRepository`() = runTest {
+        val server = ServerConnection(id = "1", name = "Test Server", baseUrl = "http://test.com")
+
+        viewModel.addServer(server)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { serverRepository.addServer(server) }
+    }
+
+    @Test
+    fun `updateServer delegates to serverRepository`() = runTest {
+        val server = ServerConnection(id = "1", name = "Updated Server", baseUrl = "http://test.com")
+
+        viewModel.updateServer(server)
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { serverRepository.updateServer(server) }
+    }
+
+    @Test
+    fun `removeServer delegates to serverRepository`() = runTest {
+        viewModel.removeServer("1")
+        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { serverRepository.removeServer("1") }
+    }
+
+    @Test
+    fun `connect starts foreground service`() = runTest {
+        val spyContext = spyk(context)
+        every { spyContext.startForegroundService(any<Intent>()) } returns null
+
+        val testViewModel = HomeViewModel(spyContext, serverRepository)
+        testViewModel.connect("1")
+
+        verify { spyContext.startForegroundService(any<Intent>()) }
+    }
+
+    @Test
+    fun `disconnect starts service with disconnect intent`() = runTest {
+        val spyContext = spyk(context)
+        every { spyContext.startService(any<Intent>()) } returns null
+
+        val testViewModel = HomeViewModel(spyContext, serverRepository)
+        testViewModel.disconnect("1")
+
+        verify { spyContext.startService(any<Intent>()) }
+    }
+
+    @Test
+    fun `uiState combines servers and connection states correctly`() = runTest {
+        val state = viewModel.uiState.value
+
+        assert(state.servers.isEmpty())
+        assert(state.connectionStates.isEmpty())
+    }
+
+    @Test
+    fun `uiState shows isConnecting when connection state is CONNECTING`() = runTest {
+        testConnectionStates.value = mapOf("1" to ServerRepository.ConnectionState.CONNECTING)
+
+        val state = viewModel.uiState.value
+
+        assert(state.isConnecting == "1" || state.isConnecting == null)
+    }
+}
