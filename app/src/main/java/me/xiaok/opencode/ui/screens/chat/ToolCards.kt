@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
@@ -27,6 +27,12 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import me.xiaok.opencode.domain.model.ToolState
 
 // ---------------------------------------------------------------------------
@@ -180,7 +186,8 @@ private fun QuestionToolCard(
     onQuestionClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    val (statusColor, statusLabel) = toolStatusInfo(state)
+    val (statusColor, _) = toolStatusInfo(state)
+    var expanded by remember { mutableStateOf(state.isCompleted) }
 
     val clickable = if (onQuestionClick != null && !state.isCompleted) {
         Modifier.clickable { onQuestionClick() }
@@ -200,79 +207,175 @@ private fun QuestionToolCard(
         ),
         shape = RoundedCornerShape(8.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Status dot
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Header row — always visible
             Surface(
-                modifier = Modifier.size(8.dp),
-                shape = androidx.compose.foundation.shape.CircleShape,
-                color = statusColor,
-            ) {}
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Text(
-                text = "question",
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontFamily = FontFamily.Monospace,
-                    fontStyle = FontStyle.Italic,
-                    fontWeight = FontWeight.Medium,
-                ),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-
-            Spacer(modifier = Modifier.width(6.dp))
-
-            Text(
-                text = when {
-                    state.isCompleted -> state.title.ifEmpty { "Answered" }
-                    onQuestionClick != null -> "Tap to answer"
-                    else -> state.title.ifEmpty { "Waiting for answer..." }
+                onClick = {
+                    if (state.isCompleted) expanded = !expanded
                 },
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontStyle = FontStyle.Italic,
-                    fontWeight = if (!state.isCompleted) FontWeight.Medium else FontWeight.Normal,
-                ),
-                color = when {
-                    state.isCompleted -> ColorToolCompleted
-                    !state.isCompleted && onQuestionClick != null -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.weight(1f),
-            )
+                color = Color.Transparent,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // Status dot
+                    Surface(
+                        modifier = Modifier.size(8.dp),
+                        shape = androidx.compose.foundation.shape.CircleShape,
+                        color = statusColor,
+                    ) {}
 
-            if (!state.isCompleted && onQuestionClick != null) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Text(
+                        text = "question",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontStyle = FontStyle.Italic,
+                            fontWeight = FontWeight.Medium,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    Text(
+                        text = when {
+                            state.isCompleted -> state.title.ifEmpty { "Answered" }
+                            onQuestionClick != null -> "Tap to answer"
+                            else -> state.title.ifEmpty { "Waiting for answer..." }
+                        },
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontStyle = FontStyle.Italic,
+                            fontWeight = if (!state.isCompleted) FontWeight.Medium else FontWeight.Normal,
+                        ),
+                        color = when {
+                            state.isCompleted -> ColorToolCompleted
+                            !state.isCompleted && onQuestionClick != null -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+
+                    if (!state.isCompleted && onQuestionClick != null) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+
+                    if (state.isCompleted) {
+                        Icon(
+                            imageVector = if (expanded) Icons.Default.ChevronRight
+                            else Icons.Default.ChevronRight,
+                            contentDescription = if (expanded) "Collapse" else "Expand",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        )
+                    }
+                }
             }
 
-            // Status label pill — only show for running/error states
-            if (state.isRunning || state.isError) {
-                Surface(
-                    color = statusColor.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(4.dp),
+            // Expanded Q&A detail — only when completed
+            if (state.isCompleted) {
+                val qaItems = remember(state.input, state.metadata) {
+                    parseQuestionAnswers(state.input, state.metadata)
+                }
+
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = expandVertically(),
+                    exit = shrinkVertically(),
                 ) {
-                    Text(
-                        text = statusLabel,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            fontStyle = FontStyle.Italic,
-                        ),
-                        color = statusColor,
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                    )
+                    if (qaItems.isNotEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 2.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            qaItems.forEachIndexed { index, qa ->
+                                if (qa.header.isNotEmpty()) {
+                                    Text(
+                                        text = qa.header,
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                // Q
+                                Text(
+                                    text = qa.question,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                // A
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Surface(
+                                        modifier = Modifier.size(6.dp),
+                                        shape = androidx.compose.foundation.shape.CircleShape,
+                                        color = ColorToolCompleted,
+                                    ) {}
+                                    Text(
+                                        text = qa.answers.joinToString(", "),
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontWeight = FontWeight.Medium,
+                                            color = ColorToolCompleted,
+                                        ),
+                                    )
+                                }
+                                if (index < qaItems.lastIndex) {
+                                    HorizontalDivider(
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+/**
+ * Parses question input + answer metadata from ToolState into displayable Q&A items.
+ */
+private data class QuestionAnswerItem(
+    val header: String,
+    val question: String,
+    val answers: List<String>,
+)
+
+private fun parseQuestionAnswers(
+    input: kotlinx.serialization.json.JsonElement?,
+    metadata: kotlinx.serialization.json.JsonElement?,
+): List<QuestionAnswerItem> {
+    val inputObj = (input as? JsonObject) ?: return emptyList()
+    val questionsArr = inputObj["questions"] as? JsonArray ?: return emptyList()
+    val answersArr = (metadata as? JsonObject)?.get("answers") as? JsonArray
+
+    return questionsArr.mapIndexed { index, questionEl ->
+        val qObj = questionEl as? JsonObject ?: return@mapIndexed null
+        val header = (qObj["header"] as? JsonPrimitive)?.content ?: ""
+        val question = (qObj["question"] as? JsonPrimitive)?.content ?: ""
+        val answers = answersArr
+            ?.getOrNull(index)
+            ?.jsonArray
+            ?.mapNotNull { (it as? JsonPrimitive)?.content }
+            ?: emptyList()
+        QuestionAnswerItem(header, question, answers)
+    }.filterNotNull()
 }
 
 // ---------------------------------------------------------------------------

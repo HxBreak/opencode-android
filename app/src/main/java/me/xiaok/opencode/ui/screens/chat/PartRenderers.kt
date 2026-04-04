@@ -5,6 +5,10 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
@@ -24,7 +28,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -34,12 +43,13 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
-import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.model.DefaultMarkdownTypography
 import me.xiaok.opencode.domain.model.*
 import me.xiaok.opencode.ui.screens.tooldetail.CachedToolData
 import me.xiaok.opencode.ui.screens.tooldetail.ToolDetailCache
@@ -57,10 +67,11 @@ fun PartRenderer(
     fontSize: String = "medium",
     onQuestionClick: (() -> Unit)? = null,
     onNavigateToToolDetail: (String) -> Unit = {},
+    isLatestActiveReasoning: Boolean = false,
 ) {
     when (part) {
         is Part.Text -> TextPart(part = part, modifier = modifier, fontSize = fontSize)
-        is Part.Reasoning -> ReasoningPart(part = part, modifier = modifier)
+        is Part.Reasoning -> ReasoningPart(part = part, modifier = modifier, isShimmerActive = isLatestActiveReasoning)
         is Part.Tool -> {
             // Cache the tool data before navigating to detail screen
             ToolDetailCache.put(part.id, CachedToolData(
@@ -317,6 +328,7 @@ private fun CodeBlock(
 private fun ReasoningPart(
     part: Part.Reasoning,
     modifier: Modifier = Modifier,
+    isShimmerActive: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -346,14 +358,18 @@ private fun ReasoningPart(
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = "Thinking",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = FontWeight.SemiBold,
-                                fontStyle = FontStyle.Italic,
-                            ),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        if (isShimmerActive) {
+                            ThinkingShimmerText()
+                        } else {
+                            Text(
+                                text = "Thinking",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontStyle = FontStyle.Italic,
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         Spacer(modifier = Modifier.weight(1f))
                         Icon(
                             imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
@@ -383,6 +399,68 @@ private fun ReasoningPart(
     }
 }
 
+/**
+ * "Thinking" label with left-to-right shimmer sweep animation.
+ * Only shown when the reasoning part is the latest content in an active (BUSY) session.
+ */
+@Composable
+private fun ThinkingShimmerText() {
+    var textLayoutSize by remember { mutableStateOf(IntSize.Zero) }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "thinkingShimmer")
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1500),
+        ),
+        label = "shimmerOffset",
+    )
+
+    val highlightColor = MaterialTheme.colorScheme.primary
+    val shimmerWidth = textLayoutSize.width * 0.6f
+    val startX = -shimmerWidth + (textLayoutSize.width + shimmerWidth * 2) * shimmerOffset
+
+    Box {
+        // Base text layer
+        Text(
+            text = "Thinking",
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontStyle = FontStyle.Italic,
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.onGloballyPositioned { textLayoutSize = it.size },
+        )
+        // Shimmer overlay: gradient is masked to text shape via SrcAtop blend mode
+        Text(
+            text = "Thinking",
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontStyle = FontStyle.Italic,
+            ),
+            color = Color.Transparent,
+            modifier = Modifier
+                .onGloballyPositioned { textLayoutSize = it.size }
+                .drawWithContent {
+                    drawContent() // draw transparent text to establish text-shaped alpha
+                    drawRect(
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                highlightColor.copy(alpha = 0.5f),
+                                Color.Transparent,
+                            ),
+                            start = Offset(startX, 0f),
+                            end = Offset(startX + shimmerWidth, 0f),
+                        ),
+                        blendMode = BlendMode.SrcAtop, // gradient only visible on text pixels
+                    )
+                },
+        )
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tool - delegates to ToolCard
 // ---------------------------------------------------------------------------
@@ -408,74 +486,82 @@ private fun TextPart(
 
     // Custom typography: use smaller, chat-appropriate sizes instead of library defaults
     // (which use displayLarge/displayMedium/displaySmall for h1/h2/h3 — way too big)
+    // Cached with remember to avoid recreating 13+ TextStyle objects on every recomposition.
+    // Using DefaultMarkdownTypography directly (non-@Composable) so it can be wrapped in remember.
     val baseTypography = MaterialTheme.typography
-    val chatTypography = markdownTypography(
-        h1 = baseTypography.headlineSmall.copy(
-            fontWeight = FontWeight.Bold,
-            fontSize = baseTypography.headlineSmall.fontSize * fontScale,
-            lineHeight = baseTypography.headlineSmall.lineHeight * fontScale,
-        ),
-        h2 = baseTypography.titleLarge.copy(
-            fontWeight = FontWeight.Bold,
-            fontSize = baseTypography.titleLarge.fontSize * fontScale,
-            lineHeight = baseTypography.titleLarge.lineHeight * fontScale,
-        ),
-        h3 = baseTypography.titleMedium.copy(
-            fontWeight = FontWeight.SemiBold,
-            fontSize = baseTypography.titleMedium.fontSize * fontScale,
-            lineHeight = baseTypography.titleMedium.lineHeight * fontScale,
-        ),
-        h4 = baseTypography.titleSmall.copy(
-            fontWeight = FontWeight.SemiBold,
-            fontSize = baseTypography.titleSmall.fontSize * fontScale,
-            lineHeight = baseTypography.titleSmall.lineHeight * fontScale,
-        ),
-        h5 = baseTypography.bodyLarge.copy(
-            fontWeight = FontWeight.SemiBold,
-            fontSize = baseTypography.bodyLarge.fontSize * fontScale,
-            lineHeight = baseTypography.bodyLarge.lineHeight * fontScale,
-        ),
-        h6 = baseTypography.bodyMedium.copy(
-            fontWeight = FontWeight.SemiBold,
-            fontSize = baseTypography.bodyMedium.fontSize * fontScale,
-            lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
-        ),
-        text = baseTypography.bodyMedium.copy(
-            fontSize = baseTypography.bodyMedium.fontSize * fontScale,
-            lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
-        ),
-        code = baseTypography.bodySmall.copy(
-            fontFamily = FontFamily.Monospace,
-            fontSize = baseTypography.bodySmall.fontSize * fontScale,
-            lineHeight = baseTypography.bodySmall.lineHeight * fontScale,
-        ),
-        inlineCode = baseTypography.bodyMedium.copy(
-            fontFamily = FontFamily.Monospace,
-            fontSize = baseTypography.bodyMedium.fontSize * fontScale,
-            lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
-        ),
-        quote = baseTypography.bodySmall.copy(
-            fontStyle = FontStyle.Italic,
-            fontSize = baseTypography.bodySmall.fontSize * fontScale,
-            lineHeight = baseTypography.bodySmall.lineHeight * fontScale,
-        ),
-        paragraph = baseTypography.bodyMedium.copy(
-            fontSize = baseTypography.bodyMedium.fontSize * fontScale,
-            lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
-        ),
-        ordered = baseTypography.bodyMedium.copy(
-            fontSize = baseTypography.bodyMedium.fontSize * fontScale,
-            lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
-        ),
-        bullet = baseTypography.bodyMedium.copy(
-            fontSize = baseTypography.bodyMedium.fontSize * fontScale,
-            lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
-        ),
-        list = baseTypography.bodyMedium.copy(
-            fontSize = baseTypography.bodyMedium.fontSize * fontScale,
-            lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
-        ),
-    )
+    val chatTypography = remember(fontScale, baseTypography) {
+        DefaultMarkdownTypography(
+            h1 = baseTypography.headlineSmall.copy(
+                fontWeight = FontWeight.Bold,
+                fontSize = baseTypography.headlineSmall.fontSize * fontScale,
+                lineHeight = baseTypography.headlineSmall.lineHeight * fontScale,
+            ),
+            h2 = baseTypography.titleLarge.copy(
+                fontWeight = FontWeight.Bold,
+                fontSize = baseTypography.titleLarge.fontSize * fontScale,
+                lineHeight = baseTypography.titleLarge.lineHeight * fontScale,
+            ),
+            h3 = baseTypography.titleMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = baseTypography.titleMedium.fontSize * fontScale,
+                lineHeight = baseTypography.titleMedium.lineHeight * fontScale,
+            ),
+            h4 = baseTypography.titleSmall.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = baseTypography.titleSmall.fontSize * fontScale,
+                lineHeight = baseTypography.titleSmall.lineHeight * fontScale,
+            ),
+            h5 = baseTypography.bodyLarge.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = baseTypography.bodyLarge.fontSize * fontScale,
+                lineHeight = baseTypography.bodyLarge.lineHeight * fontScale,
+            ),
+            h6 = baseTypography.bodyMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = baseTypography.bodyMedium.fontSize * fontScale,
+                lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
+            ),
+            text = baseTypography.bodyMedium.copy(
+                fontSize = baseTypography.bodyMedium.fontSize * fontScale,
+                lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
+            ),
+            code = baseTypography.bodySmall.copy(
+                fontFamily = FontFamily.Monospace,
+                fontSize = baseTypography.bodySmall.fontSize * fontScale,
+                lineHeight = baseTypography.bodySmall.lineHeight * fontScale,
+            ),
+            inlineCode = baseTypography.bodyMedium.copy(
+                fontFamily = FontFamily.Monospace,
+                fontSize = baseTypography.bodyMedium.fontSize * fontScale,
+                lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
+            ),
+            quote = baseTypography.bodySmall.copy(
+                fontStyle = FontStyle.Italic,
+                fontSize = baseTypography.bodySmall.fontSize * fontScale,
+                lineHeight = baseTypography.bodySmall.lineHeight * fontScale,
+            ),
+            paragraph = baseTypography.bodyMedium.copy(
+                fontSize = baseTypography.bodyMedium.fontSize * fontScale,
+                lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
+            ),
+            ordered = baseTypography.bodyMedium.copy(
+                fontSize = baseTypography.bodyMedium.fontSize * fontScale,
+                lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
+            ),
+            bullet = baseTypography.bodyMedium.copy(
+                fontSize = baseTypography.bodyMedium.fontSize * fontScale,
+                lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
+            ),
+            list = baseTypography.bodyMedium.copy(
+                fontSize = baseTypography.bodyMedium.fontSize * fontScale,
+                lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
+            ),
+            link = baseTypography.bodyMedium.copy(
+                fontSize = baseTypography.bodyMedium.fontSize * fontScale,
+                lineHeight = baseTypography.bodyMedium.lineHeight * fontScale,
+            ),
+        )
+    }
 
     // Custom colors: ensure table borders and dividers are visible
     val chatColors = markdownColor(

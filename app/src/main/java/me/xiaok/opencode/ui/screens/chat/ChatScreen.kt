@@ -217,8 +217,12 @@ fun ChatRoute(
             }
         },
         onAutoScrollToggled = { viewModel.toggleAutoScroll() },
-        onAutoScrollChanged = { viewModel.setAutoScroll(it) },
         onNavigateToSession = onNavigateToSession,
+        onDeleteSession = {
+            viewModel.deleteSession {
+                onNavigateBack()
+            }
+        },
         onBuiltInCommand = handleBuiltInCommand,
         onNavigateToToolDetail = onNavigateToToolDetail,
     )
@@ -257,8 +261,8 @@ fun ChatScreen(
     onDeleteMessage: (String) -> Unit = {},
     onDismissDiffs: () -> Unit = {},
     onAutoScrollToggled: () -> Unit = {},
-    onAutoScrollChanged: (Boolean) -> Unit = {},
     onNavigateToSession: (String) -> Unit = {},
+    onDeleteSession: () -> Unit = {},
     onBuiltInCommand: (BuiltInCommand) -> Unit = {},
     onNavigateToToolDetail: (String) -> Unit = {},
 ) {
@@ -278,6 +282,9 @@ fun ChatScreen(
     // Delete confirmation dialog
     var deleteMessageId by remember { mutableStateOf<String?>(null) }
 
+    // Delete session confirmation dialog
+    var showDeleteSessionDialog by remember { mutableStateOf(false) }
+
     // Rename dialog
     var showRenameDialog by remember { mutableStateOf(false) }
 
@@ -287,34 +294,54 @@ fun ChatScreen(
     // Auto-scroll to bottom only when user is near bottom and new messages arrive
     val messagesSnapshot = uiState.messages
 
-    // Derive a content fingerprint that changes on streaming text updates
+    // Derive a content fingerprint that changes on any content update (text + non-text parts)
     val lastMessageId = messagesSnapshot.lastOrNull()?.id
     val lastParts = lastMessageId?.let { uiState.parts[it] }
-    val contentFingerprint = if (uiState.autoScrollEnabled && uiState.sessionStatus != SessionStatus.IDLE) {
-        lastParts?.filterIsInstance<Part.Text>()
-            ?.sumOf { it.text.length } ?: 0
+    val contentFingerprint = if (uiState.autoScrollEnabled) {
+        lastParts?.sumOf {
+            when (it) {
+                is Part.Text -> it.text.length
+                is Part.Reasoning -> it.text.length
+                else -> 1 // non-text parts change height without changing text length
+            }
+        } ?: 0
     } else 0
 
+    // Scroll logic: auto-scroll ON = always chase the bottom; OFF = do nothing
     LaunchedEffect(messagesSnapshot.size, contentFingerprint) {
         val newSize = messagesSnapshot.size
         val oldSize = previousMessageCount
 
+        if (!uiState.autoScrollEnabled) {
+            // Auto-scroll OFF: still track count, but never scroll
+            // (only exception: prepend offset below)
+            previousMessageCount = newSize
+            // Apply pending scroll offset from prepend even when auto-scroll is off
+            if (pendingScrollOffset > 0) {
+                listState.scrollToItem(listState.firstVisibleItemIndex + pendingScrollOffset)
+                pendingScrollOffset = 0
+            }
+            return@LaunchedEffect
+        }
+
         if (newSize > oldSize && oldSize > 0 && pendingScrollOffset == 0) {
-            if (uiState.autoScrollEnabled) {
-                // Auto-scroll enabled: always scroll to bottom regardless of position
-                listState.animateScrollToItem(newSize - 1)
-            } else {
-                // Auto-scroll disabled: only scroll if near bottom
-                val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-                val totalItems = listState.layoutInfo.totalItemsCount
-                val isNearBottom = lastVisibleIndex >= totalItems - 3
-                if (isNearBottom) {
-                    listState.animateScrollToItem(newSize - 1)
-                }
+            // New messages arrived — scroll to the very last item in the list
+            val lastItemIndex = listState.layoutInfo.totalItemsCount - 1
+            if (lastItemIndex >= 0) {
+                listState.animateScrollToItem(lastItemIndex)
             }
         } else if (oldSize == 0 && newSize > 0) {
             // Initial load — always scroll to bottom
-            listState.scrollToItem(newSize - 1)
+            val lastItemIndex = listState.layoutInfo.totalItemsCount - 1
+            if (lastItemIndex >= 0) {
+                listState.scrollToItem(lastItemIndex)
+            }
+        } else if (newSize == oldSize && contentFingerprint > 0) {
+            // Streaming update (same message count, content changed) — chase bottom
+            val lastItemIndex = listState.layoutInfo.totalItemsCount - 1
+            if (lastItemIndex >= 0) {
+                listState.animateScrollToItem(lastItemIndex)
+            }
         }
 
         // Apply pending scroll offset from prepend
@@ -361,21 +388,6 @@ fun ChatScreen(
         }
     }
 
-    // Auto-disable auto-scroll when user scrolls up away from bottom
-    var wasNearBottom by remember { mutableStateOf(true) }
-    LaunchedEffect(listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index) {
-        if (uiState.messages.size > 3) {
-            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            val totalItems = listState.layoutInfo.totalItemsCount
-            val isNearBottom = lastVisibleIndex >= totalItems - 3
-
-            if (wasNearBottom && !isNearBottom && uiState.autoScrollEnabled) {
-                onAutoScrollChanged(false)
-            }
-            wasNearBottom = isNearBottom
-        }
-    }
-
     // Permission dialog
     activePermission?.let { request ->
         PermissionDialog(
@@ -413,6 +425,30 @@ fun ChatScreen(
                 onRenameSession(newTitle)
             },
             onDismiss = { showRenameDialog = false },
+        )
+    }
+
+    // Delete session confirmation dialog
+    if (showDeleteSessionDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSessionDialog = false },
+            title = { Text("Delete session") },
+            text = { Text("Are you sure you want to delete this session? All messages and history will be permanently removed. This action cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteSessionDialog = false
+                        onDeleteSession()
+                    },
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSessionDialog = false }) {
+                    Text("Cancel")
+                }
+            },
         )
     }
 
@@ -564,8 +600,18 @@ fun ChatScreen(
                                 )
                             }
                             DropdownMenuItem(
-                                text = { Text("Close") },
-                                onClick = { showMenu = false },
+                                text = { Text("Delete") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    showDeleteSessionDialog = true
+                                },
                             )
                         }
                     }
@@ -598,6 +644,12 @@ fun ChatScreen(
                 selectedModel = uiState.selectedModel,
                 onModelSelected = onModelSelected,
                 selectedVariant = uiState.selectedVariant,
+                variants = uiState.selectedModel?.let { ref ->
+                    uiState.providers
+                        .find { it.id == ref.providerID }
+                        ?.models?.get(ref.modelID)
+                        ?.variantNames ?: emptyList()
+                } ?: emptyList(),
                 onVariantSelected = onVariantSelected,
                 attachedImages = uiState.attachedImages,
                 onAttachImage = onAttachImage,
@@ -655,6 +707,13 @@ fun ChatScreen(
                             items = uiState.messages,
                             key = { it.id },
                         ) { message ->
+                            val messageParts = uiState.parts[message.id] ?: emptyList()
+                            val isLastMessage = message.id == uiState.messages.lastOrNull()?.id
+                            val isActiveSession = uiState.sessionStatus == SessionStatus.BUSY
+                            val hasReasoningPart = messageParts.any { it is Part.Reasoning }
+                            val hasTextPart = messageParts.any { it is Part.Text }
+                            val isLatestActiveReasoning = isLastMessage && isActiveSession && hasReasoningPart && !hasTextPart
+
                             var showMenu by remember { mutableStateOf(false) }
                             Box {
                                 MessageBubble(
@@ -669,6 +728,7 @@ fun ChatScreen(
                                         Log.d("ChatScreen", "onQuestionClick: questions=${uiState.questions.size}")
                                     },
                                     onNavigateToToolDetail = onNavigateToToolDetail,
+                                    isLatestActiveReasoning = isLatestActiveReasoning,
                                 )
                                 DropdownMenu(
                                     expanded = showMenu,
@@ -745,6 +805,7 @@ fun ChatScreen(
                                 onReject = {
                                     onRejectQuestion(question)
                                 },
+                                isSubmitting = question.id in uiState.submittingQuestionIds,
                             )
                         }
 
@@ -787,9 +848,21 @@ private fun MessageBubble(
     fontSize: String = "medium",
     onQuestionClick: (() -> Unit)? = null,
     onNavigateToToolDetail: (String) -> Unit = {},
+    isLatestActiveReasoning: Boolean = false,
 ) {
     when {
-            message.isUser -> UserMessageBubble(message = message, parts = parts, onMenuClick = onMenuClick)
+        message.isUser -> {
+            val allParts = parts.ifEmpty { message.parts }
+            val hasCompactionOnly = allParts.isNotEmpty() && allParts.all { it is Part.Compaction }
+            if (hasCompactionOnly) {
+                // Compaction-only user message → render as divider (matches Web UI behavior)
+                allParts.filterIsInstance<Part.Compaction>().forEach { part ->
+                    PartRenderer(part = part)
+                }
+            } else {
+                UserMessageBubble(message = message, parts = parts, onMenuClick = onMenuClick)
+            }
+        }
         message.isAssistant -> AssistantMessageBubble(
             message = message,
             parts = parts,
@@ -799,6 +872,7 @@ private fun MessageBubble(
             fontSize = fontSize,
             onQuestionClick = onQuestionClick,
             onNavigateToToolDetail = onNavigateToToolDetail,
+            isLatestActiveReasoning = isLatestActiveReasoning,
         )
     }
 }
@@ -857,6 +931,7 @@ private fun AssistantMessageBubble(
     fontSize: String = "medium",
     onQuestionClick: (() -> Unit)? = null,
     onNavigateToToolDetail: (String) -> Unit = {},
+    isLatestActiveReasoning: Boolean = false,
 ) {
     Column(
         modifier = Modifier
@@ -893,6 +968,7 @@ private fun AssistantMessageBubble(
                 childSessionIds = childSessionIds,
                 fontSize = fontSize,
                 onNavigateToToolDetail = onNavigateToToolDetail,
+                isLatestActiveReasoning = isLatestActiveReasoning,
             )
             Spacer(modifier = Modifier.height(4.dp))
         }
@@ -974,17 +1050,18 @@ private fun MessageNavigationButtons(
             contentDescription = "Previous message",
         )
 
-        // Auto-scroll toggle / scroll-to-bottom
+        // Auto-scroll toggle — ON = always chase bottom; OFF = no auto-scroll
         SmallFabButton(
             onClick = {
+                onAutoScrollToggled()
                 if (!autoScrollEnabled) {
-                    // Enable and scroll to bottom immediately
-                    onAutoScrollToggled()
+                    // Turning ON: scroll to bottom immediately
                     scope.launch {
-                        listState.animateScrollToItem(messageCount - 1 + offset)
+                        val lastItem = listState.layoutInfo.totalItemsCount - 1
+                        if (lastItem >= 0) {
+                            listState.animateScrollToItem(lastItem)
+                        }
                     }
-                } else {
-                    onAutoScrollToggled()
                 }
             },
             enabled = true,

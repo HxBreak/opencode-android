@@ -213,6 +213,7 @@ fun ChatInputBar(
                                     .fillMaxWidth()
                                     .clickable {
                                         onBuiltInCommand(cmd)
+                                        onTextChange("")
                                     }
                                     .padding(horizontal = 12.dp, vertical = 6.dp),
                             ) {
@@ -491,19 +492,8 @@ private fun StatusRow(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Status indicator
+        // Status indicator (only show when busy/retrying)
         when (status) {
-            SessionStatus.IDLE -> {
-                StatusDot(
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Idle",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
             SessionStatus.BUSY -> {
                 PulsingDot(color = Color(0xFF4CAF50))
                 Spacer(modifier = Modifier.width(6.dp))
@@ -526,6 +516,7 @@ private fun StatusRow(
                     color = Color(0xFFFFA000),
                 )
             }
+            SessionStatus.IDLE -> { /* Don't show idle status */ }
         }
 
         Spacer(modifier = Modifier.weight(1f))
@@ -558,17 +549,17 @@ private fun StatusRow(
             Spacer(modifier = Modifier.width(10.dp))
         }
 
-        // Context usage display
+        // Context usage — battery indicator (remaining = 100 - used)
         if (contextUsagePercent > 0) {
-            val ctxColor = when {
-                contextUsagePercent >= 90 -> MaterialTheme.colorScheme.error
-                contextUsagePercent >= 70 -> Color(0xFFFFA000)
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            val remaining = 100 - contextUsagePercent
+            val batteryColor = when {
+                remaining <= 10 -> MaterialTheme.colorScheme.error
+                remaining <= 30 -> Color(0xFFFFA000)
+                else -> Color(0xFF4CAF50)
             }
-            Text(
-                text = "Ctx: $contextUsagePercent%",
-                style = MaterialTheme.typography.labelSmall,
-                color = ctxColor,
+            ContextBattery(
+                remaining = remaining,
+                color = batteryColor,
             )
         }
     }
@@ -579,6 +570,48 @@ private fun formatTokenCount(tokens: Long): String {
         tokens >= 1_000_000 -> String.format("%.1fM", tokens / 1_000_000.0)
         tokens >= 1_000 -> String.format("%.1fk", tokens / 1_000.0)
         else -> "$tokens"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Context battery indicator — battery icon showing remaining context
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ContextBattery(
+    remaining: Int,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier,
+    ) {
+        // Battery body
+        Box(
+            modifier = Modifier
+                .size(width = 28.dp, height = 14.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+                .padding(1.5.dp),
+        ) {
+            // Fill bar — width proportional to remaining
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(remaining / 100f)
+                    .height(11.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(color),
+            )
+        }
+        // Battery tip (positive terminal nub)
+        Box(
+            modifier = Modifier
+                .size(width = 2.dp, height = 6.dp)
+                .clip(RoundedCornerShape(topEndPercent = 50, bottomEndPercent = 50))
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
+        )
+        Spacer(modifier = Modifier.width(4.dp))
     }
 }
 
@@ -656,12 +689,14 @@ private fun SelectorRow(
             )
         }
 
-        // Variant selector — cycles through fast/think/agentic
-        VariantChip(
-            variants = variants,
-            selectedVariant = selectedVariant,
-            onVariantSelected = onVariantSelected,
-        )
+        // Variant selector — cycles through available variants (only when model has variants)
+        if (variants.isNotEmpty()) {
+            VariantChip(
+                variants = variants,
+                selectedVariant = selectedVariant,
+                onVariantSelected = onVariantSelected,
+            )
+        }
     }
 }
 
@@ -807,12 +842,7 @@ private fun VariantChip(
     onVariantSelected: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val displayText = when (selectedVariant) {
-        "fast" -> "Fast"
-        "think" -> "Think"
-        "agentic" -> "Agentic"
-        else -> null
-    }
+    val displayText = selectedVariant?.replaceFirstChar { it.uppercase() }
 
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -854,7 +884,7 @@ private fun VariantChip(
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = displayText ?: "Speed",
+                text = displayText ?: "Variant",
                 style = MaterialTheme.typography.labelSmall,
                 color = if (selectedVariant != null) {
                     MaterialTheme.colorScheme.onSecondaryContainer

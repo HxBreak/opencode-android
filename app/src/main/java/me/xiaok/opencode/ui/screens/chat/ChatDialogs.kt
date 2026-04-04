@@ -117,12 +117,14 @@ fun QuestionCard(
     question: QuestionRequest,
     onSubmit: (answers: List<List<String>>) -> Unit,
     onReject: () -> Unit,
+    isSubmitting: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val isSingle = question.questions.size == 1 && !question.questions.first().multiple
 
-    // Prevent double submissions
-    var submitted by remember { mutableStateOf(false) }
+    // Locked = locally submitted OR server-side submitting (waiting for SSE confirmation)
+    var localSubmitted by remember { mutableStateOf(false) }
+    val isLocked = localSubmitted || isSubmitting
 
     // Track answers per question (index → selected labels)
     val answersPerQuestion = remember {
@@ -193,7 +195,7 @@ fun QuestionCard(
                                 )
                                 .toggleable(
                                     value = checked,
-                                    enabled = !submitted,
+                                    enabled = !isLocked,
                                     role = androidx.compose.ui.semantics.Role.Checkbox,
                                     onValueChange = {
                                         if (it) selectedLabels.add(option.label) else selectedLabels.remove(option.label)
@@ -236,10 +238,10 @@ fun QuestionCard(
                         val isSelected = index < answersPerQuestion.size && option.label in answersPerQuestion[index]
                         Surface(
                             onClick = {
-                                if (!submitted) {
+                                if (!isLocked) {
                                     if (isSingle) {
                                         // Immediate submit for single-question single-select
-                                        submitted = true
+                                        localSubmitted = true
                                         onSubmit(listOf(listOf(option.label)))
                                     } else {
                                         if (index < answersPerQuestion.size) {
@@ -248,7 +250,7 @@ fun QuestionCard(
                                     }
                                 }
                             },
-                            enabled = !submitted,
+                            enabled = !isLocked,
                             shape = RoundedCornerShape(8.dp),
                             color = if (isSelected) accentColor.copy(alpha = 0.12f)
                             else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
@@ -315,11 +317,11 @@ fun QuestionCard(
                                 )
                                 IconButton(
                                     onClick = {
-                                        if (!submitted && index < answersPerQuestion.size) {
+                                        if (!isLocked && index < answersPerQuestion.size) {
                                             answersPerQuestion[index] = emptyList()
                                         }
                                     },
-                                    enabled = !submitted,
+                                    enabled = !isLocked,
                                     modifier = Modifier.size(20.dp),
                                 ) {
                                     Icon(
@@ -338,7 +340,7 @@ fun QuestionCard(
                         if (!isEditingCustom) {
                             Surface(
                                 onClick = { isEditingCustom = true },
-                                enabled = !submitted,
+                                enabled = !isLocked,
                                 shape = RoundedCornerShape(8.dp),
                                 color = androidx.compose.ui.graphics.Color.Transparent,
                                 modifier = Modifier.fillMaxWidth(),
@@ -365,7 +367,7 @@ fun QuestionCard(
                             OutlinedTextField(
                                 value = customText,
                                 onValueChange = { customText = it },
-                                enabled = !submitted,
+                                enabled = !isLocked,
                                 placeholder = {
                                     Text(
                                         "Type answer…",
@@ -384,7 +386,7 @@ fun QuestionCard(
                                                 val trimmed = customText.trim()
                                                 if (trimmed.isNotBlank()) {
                                                     if (isSingle) {
-                                                        submitted = true
+                                                        localSubmitted = true
                                                         onSubmit(listOf(listOf(trimmed)))
                                                     } else {
                                                         if (index < answersPerQuestion.size) {
@@ -395,7 +397,7 @@ fun QuestionCard(
                                                     }
                                                 }
                                             },
-                                            enabled = customText.isNotBlank() && !submitted,
+                                            enabled = customText.isNotBlank() && !isLocked,
                                         ) {
                                             Icon(
                                                 Icons.AutoMirrored.Filled.Send,
@@ -428,20 +430,20 @@ fun QuestionCard(
             ) {
                 TextButton(
                     onClick = {
-                        submitted = true
+                        localSubmitted = true
                         onReject()
                     },
-                    enabled = !submitted,
+                    enabled = !isLocked,
                 ) {
                     Text("Dismiss", style = MaterialTheme.typography.labelMedium)
                 }
                 if (!isSingle) {
                     Button(
                         onClick = {
-                            submitted = true
+                            localSubmitted = true
                             onSubmit(answersPerQuestion.map { it.toList() })
                         },
-                        enabled = answersPerQuestion.any { it.isNotEmpty() } && !submitted,
+                        enabled = answersPerQuestion.any { it.isNotEmpty() } && !isLocked,
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                     ) {
                         Text("Submit", style = MaterialTheme.typography.labelMedium)
@@ -468,16 +470,9 @@ fun ModelPickerDialog(
         if (searchQuery.isBlank()) {
             providers
         } else {
-            providers.map { provider ->
-                provider.copy(
-                    models = provider.models.filterKeys { modelId ->
-                        val model = provider.models[modelId] ?: return@filterKeys false
-                        model.name.contains(searchQuery, ignoreCase = true) ||
-                        modelId.contains(searchQuery, ignoreCase = true) ||
-                        provider.name.contains(searchQuery, ignoreCase = true)
-                    }
-                )
-            }.filter { it.models.isNotEmpty() }
+            providers.filter { provider ->
+                provider.name.contains(searchQuery, ignoreCase = true)
+            }
         }
     }
 

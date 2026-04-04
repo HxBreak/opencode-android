@@ -52,6 +52,7 @@ data class ChatUiState(
     val autoScrollEnabled: Boolean = true,
     val childSessionIds: Map<String, String> = emptyMap(), // subtaskPartId -> childSessionId
     val chatFontSize: String = "medium", // "small", "medium", "large"
+    val submittingQuestionIds: Set<String> = emptySet(),
     val sessionWebUrl: String = "",
 )
 
@@ -90,6 +91,9 @@ class ChatViewModel @Inject constructor(
     private val _isLoadingMore = MutableStateFlow(false)
     private val _hasOlderMessages = MutableStateFlow(true)
     private var _nextCursor: String? = null
+
+    /** Question IDs currently being submitted (reply/reject) — UI should show loading state. */
+    private val _submittingQuestionIds = MutableStateFlow<Set<String>>(emptySet())
     /**
      * Flag to suppress draft restoration from DataStore.
      * Set to true when sendMessage clears the draft, to prevent
@@ -127,6 +131,34 @@ class ChatViewModel @Inject constructor(
         SelectorPartialState(providers, agents, commands, selAgent, selModel)
     }
 
+    // === Cached derived state (avoid recomputation on every streaming delta) ===
+
+    /**
+     * Session statistics (tokens, cost, turns) — recomputed when messages
+     * or model selection change, NOT on every streaming delta.
+     * Subscribed by uiState combine chain so it stays active.
+     */
+    private val sessionStats: Flow<SessionStats> = combine(
+        eventReducer.messages.map { it[sessionId] ?: emptyList() },
+        _providers,
+        _selectedModel,
+    ) { messages, providers, selectedModel ->
+        computeSessionStats(messages, providers, selectedModel)
+    }.distinctUntilChanged()
+
+    /**
+     * Mapping: subtask part ID → child session ID.
+     * Only recomputed when messages, parts, or sessions change — NOT on every streaming delta.
+     * Subscribed by uiState combine chain so it stays active.
+     */
+    private val childSessionIdsFlow: Flow<Map<String, String>> = combine(
+        eventReducer.messages.map { it[sessionId] ?: emptyList() },
+        eventReducer.parts,
+        eventReducer.sessions,
+    ) { messages, allParts, allSessions ->
+        computeChildSessionIds(sessionId, messages, allParts, allSessions)
+    }.distinctUntilChanged()
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val uiState: StateFlow<ChatUiState> = combine(
         eventReducer.sessions.map { it[sessionId] },
@@ -150,6 +182,16 @@ class ChatViewModel @Inject constructor(
         val mergedQuestions = (listOf(sessionId) + descendantIds)
             .flatMap { sid -> allQuestions[sid] ?: emptyList() }
 
+        // Clean up submitting IDs that are no longer in questions (SSE confirmed removal)
+        val currentSubmitting = _submittingQuestionIds.value
+        if (currentSubmitting.isNotEmpty()) {
+            val activeIds = mergedQuestions.map { it.id }.toSet()
+            val staleIds = currentSubmitting - activeIds
+            if (staleIds.isNotEmpty()) {
+                _submittingQuestionIds.value = currentSubmitting - staleIds
+            }
+        }
+
         Log.d(TAG, "combine: sessionId=$sessionId, questions=${mergedQuestions.size}, descendants=${descendantIds.size}, sessions=${allSessions.size}")
         ChatPartialState(session, messages, parts, permissions, mergedQuestions, diffs, allSessions)
     }.flatMapLatest { partial ->
@@ -169,7 +211,7 @@ class ChatViewModel @Inject constructor(
                 SelectorState(selector, selVariant)
             }.flatMapLatest { selector ->
                 _attachedImages.flatMapLatest { images ->
-                    draftRepository.getDraft(sessionId).map { draft ->
+                    combine(draftRepository.getDraft(sessionId), sessionStats, childSessionIdsFlow) { draft, stats, subSessionIds ->
                         // Restore agent/model/variant from draft if available
                         if (draft != null) {
                             if (_selectedAgent.value == null && draft.selectedAgent != null) {
@@ -182,63 +224,6 @@ class ChatViewModel @Inject constructor(
                                 _selectedVariant.value = draft.selectedVariant
                             }
                             _draftImageUris.value = draft.imageUris
-                        }
-
-                        // Compute session statistics from messages
-                        val stats = computeSessionStats(
-                            messages = partial.messages,
-                            providers = selector.partial.providers,
-                            selectedModel = selector.partial.selectedModel,
-                        )
-
-                        // Build mapping: subtask part ID -> child session ID
-                        val childSessions = partial.allSessions
-                            .filter { (_, s) -> s.parentID == sessionId }
-                            .values
-                            .sortedBy { it.time.created }
-                        val subSessionIds = mutableMapOf<String, String>()
-                        if (childSessions.isNotEmpty()) {
-                            val subtaskParts = mutableListOf<Pair<String, Part.Subtask>>()
-                            for (msg in partial.messages) {
-                                val msgParts = partial.parts[msg.id] ?: msg.parts
-                                for (part in msgParts) {
-                                    if (part is Part.Subtask) {
-                                        subtaskParts.add(part.id to part)
-                                    }
-                                }
-                            }
-
-                            // Matching strategy (priority order):
-                            // 1. Exact match: child session title contains "(@agentName" pattern
-                            //    e.g. "Explore project (@explore subagent)" matches agent "explore"
-                            // 2. Contains match: child session title contains the agent name (case-insensitive)
-                            // 3. Positional fallback: assign remaining unmatched sessions in order
-                            val unmatchedSessions = childSessions.toMutableList()
-                            val matchedSessionIds = mutableSetOf<String>()
-
-                            for ((partId, subtask) in subtaskParts) {
-                                val agent = subtask.agent
-                                val bestMatch = unmatchedSessions.firstOrNull { child ->
-                                    // Pattern: title contains "(@agent" — the exact format used by OpenCode server
-                                    child.title.contains("(@${agent}", ignoreCase = true) &&
-                                            child.id !in matchedSessionIds
-                                } ?: unmatchedSessions.firstOrNull { child ->
-                                    // Fallback: title contains the agent name anywhere
-                                    child.title.contains(agent, ignoreCase = true) &&
-                                            child.id !in matchedSessionIds
-                                }
-
-                                if (bestMatch != null) {
-                                    subSessionIds[partId] = bestMatch.id
-                                    unmatchedSessions.remove(bestMatch)
-                                    matchedSessionIds.add(bestMatch.id)
-                                } else if (unmatchedSessions.isNotEmpty()) {
-                                    // Last resort: positional assignment (preserves order)
-                                    val fallback = unmatchedSessions.removeAt(0)
-                                    subSessionIds[partId] = fallback.id
-                                    matchedSessionIds.add(fallback.id)
-                                }
-                            }
                         }
 
                         ChatUiState(
@@ -270,6 +255,7 @@ class ChatViewModel @Inject constructor(
                             autoScrollEnabled = _autoScrollEnabled.value,
                             childSessionIds = subSessionIds,
                             chatFontSize = _chatFontSize.value,
+                            submittingQuestionIds = _submittingQuestionIds.value,
                             sessionWebUrl = buildSessionWebUrl(partial.session),
                         )
                     }
@@ -443,8 +429,9 @@ class ChatViewModel @Inject constructor(
                     Log.w(TAG, "loadPendingQuestions: server not found for serverId=$serverId")
                     return@launch
                 }
-                val allQuestions = api.listQuestions(server)
-                Log.d(TAG, "loadPendingQuestions: total=${allQuestions.size}")
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                val allQuestions = api.listQuestions(server, directory = directory)
+                Log.d(TAG, "loadPendingQuestions: directory=$directory, total=${allQuestions.size}")
                 // Group by sessionID and load all into reducer (not just current session)
                 allQuestions.groupBy { it.sessionID }.forEach { (sid, questions) ->
                     eventReducer.setQuestions(sid, questions)
@@ -568,11 +555,12 @@ class ChatViewModel @Inject constructor(
                     parts.add(mapOf("type" to "text", "text" to text.trim()))
                 }
 
-                // Add attached images as inline image parts
+                // Add attached images as file parts (OpenCode API expects type="file" with url field)
                 _attachedImages.value.forEach { image ->
                     parts.add(mapOf(
-                        "type" to "image",
-                        "image" to "data:${image.mimeType};base64,${image.base64}",
+                        "type" to "file",
+                        "url" to "data:${image.mimeType};base64,${image.base64}",
+                        "mime" to image.mimeType,
                     ))
                 }
 
@@ -584,6 +572,7 @@ class ChatViewModel @Inject constructor(
                         parts = parts,
                         agent = _selectedAgent.value,
                         model = _selectedModel.value,
+                        variant = _selectedVariant.value,
                         directory = uiState.value.session?.directory,
                     )
                     Log.d(TAG, "sendMessage: api.promptAsync returned successfully")
@@ -695,10 +684,44 @@ class ChatViewModel @Inject constructor(
         _selectedModel.value = model
         _modelDefaultsApplied = true
         if (model != null) {
+            val modelVariants = _providers.value
+                .find { it.id == model.providerID }
+                ?.models?.get(model.modelID)
+                ?.variantNames ?: emptyList()
+            val currentVariant = _selectedVariant.value
+            if (modelVariants.isNotEmpty()) {
+                // If current variant is not valid for this model, try saved preference then middle default
+                if (currentVariant == null || currentVariant !in modelVariants) {
+                    viewModelScope.launch {
+                        val saved = settingsRepository.getRecentVariant(serverId, model).first()
+                        if (saved != null && saved in modelVariants) {
+                            _selectedVariant.value = saved
+                        } else {
+                            _selectedVariant.value = modelVariants[modelVariants.size / 2]
+                        }
+                    }
+                }
+            } else {
+                _selectedVariant.value = null
+            }
             viewModelScope.launch { settingsRepository.setRecentModel(serverId, model) }
+        } else {
+            _selectedVariant.value = null
         }
     }
-    fun selectVariant(variant: String?) { _selectedVariant.value = variant }
+    fun selectVariant(variant: String?) {
+        _selectedVariant.value = variant
+        val model = _selectedModel.value
+        if (model != null) {
+            viewModelScope.launch {
+                if (variant != null) {
+                    settingsRepository.setRecentVariant(serverId, model, variant)
+                } else {
+                    settingsRepository.clearRecentVariant(serverId, model)
+                }
+            }
+        }
+    }
 
     /**
      * Load model fallback sources: global config + locally saved preference.
@@ -744,37 +767,26 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        // Tier 1: configured model from global config
-        val configured = _configuredModel.value
-        if (configured != null && isValidModelRef(configured)) {
-            _selectedModel.value = configured
-            _modelDefaultsApplied = true
-            return
+        val modelToApply: ModelRef? = when {
+            // Tier 1: configured model from global config
+            _configuredModel.value?.let { isValidModelRef(it) } == true -> _configuredModel.value
+            // Tier 2: locally saved recent model preference
+            _savedModel.value?.let { isValidModelRef(it) } == true -> _savedModel.value
+            // Tier 3: provider defaults from GET /provider response
+            else -> {
+                val defaults = _providerDefaults.value
+                if (defaults.isNotEmpty()) {
+                    val providers = _providers.value
+                    defaults.entries.firstOrNull { entry ->
+                        providers.any { it.id == entry.key && it.models.containsKey(entry.value) }
+                    }?.let { ModelRef(providerID = it.key, modelID = it.value) }
+                } else null
+            }
         }
 
-        // Tier 2: locally saved recent model preference
-        val saved = _savedModel.value
-        if (saved != null && isValidModelRef(saved)) {
-            _selectedModel.value = saved
-            _modelDefaultsApplied = true
+        if (modelToApply != null) {
+            selectModel(modelToApply) // Use selectModel() to get variant restore logic
             return
-        }
-
-        // Tier 3: provider defaults from GET /provider response
-        val providerDefaults = _providerDefaults.value
-        if (providerDefaults.isNotEmpty()) {
-            val providers = _providers.value
-            val firstDefault = providerDefaults.entries.firstOrNull { (providerId, modelId) ->
-                providers.any { it.id == providerId && it.models.containsKey(modelId) }
-            }
-            if (firstDefault != null) {
-                _selectedModel.value = ModelRef(
-                    providerID = firstDefault.key,
-                    modelID = firstDefault.value,
-                )
-                _modelDefaultsApplied = true
-                return
-            }
         }
     }
 
@@ -813,15 +825,21 @@ class ChatViewModel @Inject constructor(
 
     fun replyQuestion(question: QuestionRequest, answers: List<List<String>>) {
         viewModelScope.launch {
+            _submittingQuestionIds.value = _submittingQuestionIds.value + question.id
             try {
-                val server = serverRepository.getServer(serverId) ?: return@launch
-                val success = api.replyQuestion(server, question.id, answers)
-                if (success) {
-                    eventReducer.removeQuestion(question.sessionID, question.id)
-                } else {
+                val server = serverRepository.getServer(serverId) ?: run {
+                    _submittingQuestionIds.value = _submittingQuestionIds.value - question.id
+                    return@launch
+                }
+                val directory = eventReducer.sessions.value[question.sessionID]?.directory
+                val success = api.replyQuestion(server, question.id, answers, directory = directory)
+                if (!success) {
+                    _submittingQuestionIds.value = _submittingQuestionIds.value - question.id
                     _error.value = "Failed to reply to question"
                 }
+                // On success: keep submitting state, wait for SSE question.replied event to remove
             } catch (e: Exception) {
+                _submittingQuestionIds.value = _submittingQuestionIds.value - question.id
                 errorCollector.logError(e, "Chat")
                 _error.value = e.message ?: "Failed to reply"
             }
@@ -830,15 +848,21 @@ class ChatViewModel @Inject constructor(
 
     fun rejectQuestion(question: QuestionRequest) {
         viewModelScope.launch {
+            _submittingQuestionIds.value = _submittingQuestionIds.value + question.id
             try {
-                val server = serverRepository.getServer(serverId) ?: return@launch
-                val success = api.rejectQuestion(server, question.id)
-                if (success) {
-                    eventReducer.removeQuestion(question.sessionID, question.id)
-                } else {
+                val server = serverRepository.getServer(serverId) ?: run {
+                    _submittingQuestionIds.value = _submittingQuestionIds.value - question.id
+                    return@launch
+                }
+                val directory = eventReducer.sessions.value[question.sessionID]?.directory
+                val success = api.rejectQuestion(server, question.id, directory = directory)
+                if (!success) {
+                    _submittingQuestionIds.value = _submittingQuestionIds.value - question.id
                     _error.value = "Failed to reject question"
                 }
+                // On success: keep submitting state, wait for SSE question.rejected event to remove
             } catch (e: Exception) {
+                _submittingQuestionIds.value = _submittingQuestionIds.value - question.id
                 errorCollector.logError(e, "Chat")
                 _error.value = e.message ?: "Failed to reject"
             }
@@ -898,12 +922,21 @@ class ChatViewModel @Inject constructor(
     fun attachImage(uri: Uri) {
         viewModelScope.launch {
             try {
-                val compressed = imageCompressor.compress(uri) ?: return@launch
+                val compressed = imageCompressor.compress(uri)
+                if (compressed == null) {
+                    Log.e(TAG, "attachImage: compression returned null for uri=$uri")
+                    _error.value = "Failed to attach image: compression failed"
+                    return@launch
+                }
                 val mimeType = imageCompressor.getMimeType(uri)
                 val base64 = imageCompressor.run { compressed.toBase64() }
                 val current = _attachedImages.value
                 _attachedImages.value = current + AttachedImage(uri, base64, mimeType)
-            } catch (_: Exception) { /* silent fail */ }
+                Log.d(TAG, "attachImage: success, uri=$uri, size=${compressed.size} bytes, mimeType=$mimeType")
+            } catch (e: Exception) {
+                Log.e(TAG, "attachImage: failed for uri=$uri", e)
+                _error.value = "Failed to attach image: ${e.message}"
+            }
         }
     }
 
@@ -1073,6 +1106,23 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun deleteSession(onDeleted: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                val server = serverRepository.getServer(serverId) ?: return@launch
+                val deleted = api.deleteSession(server, sessionId)
+                if (deleted) {
+                    val session = eventReducer.sessions.value[sessionId] ?: return@launch
+                    eventReducer.processEvent(serverId, SseEvent.SessionDeleted(session))
+                    onDeleted()
+                }
+            } catch (e: Exception) {
+                errorCollector.logError(e, "Chat")
+                _error.value = e.message ?: "Failed to delete session"
+            }
+        }
+    }
+
     /**
      * Export session messages as a markdown string.
      * Returns the full exported text on success.
@@ -1140,12 +1190,15 @@ class ChatViewModel @Inject constructor(
             it.isAssistant && it.info.tokens != null && it.info.tokens!!.total > 0
         }
         val tokens = lastAssistantWithTokens?.info?.tokens
+        // total = input + output + reasoning + cache.read + cache.write
+        // Backend normalizes: input = inputTokens - cacheRead - cacheWrite (can be negative),
+        // so the sum correctly reconstructs the total. Do NOT coerce individual fields to 0.
         val totalTokens = if (tokens != null) {
-            tokens.input.coerceAtLeast(0L) +
-                tokens.output.coerceAtLeast(0L) +
-                tokens.reasoning.coerceAtLeast(0L) +
-                tokens.cache.read.coerceAtLeast(0L) +
-                tokens.cache.write.coerceAtLeast(0L)
+            tokens.input +
+                tokens.output +
+                tokens.reasoning +
+                tokens.cache.read +
+                tokens.cache.write
         } else {
             0L
         }
@@ -1164,6 +1217,65 @@ class ChatViewModel @Inject constructor(
             totalCost = totalCost,
             conversationTurns = userCount,
         )
+    }
+
+    /**
+     * Build mapping: subtask part ID → child session ID.
+     * Extracted as a pure function so it can be cached in a separate StateFlow.
+     */
+    private fun computeChildSessionIds(
+        parentSessionId: String,
+        messages: List<Message>,
+        allParts: Map<String, List<Part>>,
+        allSessions: Map<String, Session>,
+    ): Map<String, String> {
+        val childSessions = allSessions
+            .filter { (_, s) -> s.parentID == parentSessionId }
+            .values
+            .sortedBy { it.time.created }
+
+        val subSessionIds = mutableMapOf<String, String>()
+        if (childSessions.isNotEmpty()) {
+            val subtaskParts = mutableListOf<Pair<String, Part.Subtask>>()
+            for (msg in messages) {
+                val msgParts = allParts[msg.id] ?: msg.parts
+                for (part in msgParts) {
+                    if (part is Part.Subtask) {
+                        subtaskParts.add(part.id to part)
+                    }
+                }
+            }
+
+            // Matching strategy (priority order):
+            // 1. Exact match: child session title contains "(@agentName" pattern
+            //    e.g. "Explore project (@explore subagent)" matches agent "explore"
+            // 2. Contains match: child session title contains the agent name (case-insensitive)
+            // 3. Positional fallback: assign remaining unmatched sessions in order
+            val unmatchedSessions = childSessions.toMutableList()
+            val matchedSessionIds = mutableSetOf<String>()
+
+            for ((partId, subtask) in subtaskParts) {
+                val agent = subtask.agent
+                val bestMatch = unmatchedSessions.firstOrNull { child ->
+                    child.title.contains("(@${agent}", ignoreCase = true) &&
+                            child.id !in matchedSessionIds
+                } ?: unmatchedSessions.firstOrNull { child ->
+                    child.title.contains(agent, ignoreCase = true) &&
+                            child.id !in matchedSessionIds
+                }
+
+                if (bestMatch != null) {
+                    subSessionIds[partId] = bestMatch.id
+                    unmatchedSessions.remove(bestMatch)
+                    matchedSessionIds.add(bestMatch.id)
+                } else if (unmatchedSessions.isNotEmpty()) {
+                    val fallback = unmatchedSessions.removeAt(0)
+                    subSessionIds[partId] = fallback.id
+                    matchedSessionIds.add(fallback.id)
+                }
+            }
+        }
+        return subSessionIds
     }
 
     /**
