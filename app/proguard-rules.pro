@@ -1,21 +1,46 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# kotlinx.serialization — keep serializer classes
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.AnnotationsKt
+-keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
+-keepclasseswithmembers class kotlinx.serialization.json.** { kotlinx.serialization.KSerializer serializer(...); }
+-keep,includedescriptorclasses class me.xiaok.opencode.domain.model.**$$serializer { *; }
+-keepclassmembers class me.xiaok.opencode.domain.model.** {
+    *** Companion;
+}
+-keepclasseswithmembers class me.xiaok.opencode.domain.model.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Ktor Client — keep serializable request/response classes
+-keep class me.xiaok.opencode.data.api.dto.** { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# OkHttp SSE
+-dontwarn okio.**
+-dontwarn org.conscrypt.**
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Sealed class polymorphism
+-keep class * extends me.xiaok.opencode.domain.model.Part { *; }
+-keep class * extends me.xiaok.opencode.domain.model.Message { *; }
+-keep class * extends me.xiaok.opencode.domain.model.ToolState { *; }
+-keep class * extends me.xiaok.opencode.domain.model.SseEvent { *; }
+
+# Hilt — keep injected classes
+-dontwarn dagger.hilt.**
+-keep class dagger.hilt.** { *; }
+
+# Coil — keep image loaders
+-dontwarn coil3.**
+
+# Coroutines
+-dontwarn kotlinx.coroutines.**
+
+# Room — keep entity and dao classes
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class *
+-keep class * extends androidx.room.Dao
+
+# AndroidX Security Crypto
+-dontwarn androidx.security.**
+
+# Google Error Prone (transitive dep of Tink via security-crypto)
+-dontwarn com.google.errorprone.annotations.**
