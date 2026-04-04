@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
 import android.util.Base64
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.ByteArrayOutputStream
 import javax.inject.Inject
@@ -30,17 +31,33 @@ class ImageCompressor @Inject constructor(
         return try {
             // Decode bounds first to determine sample size
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { stream ->
+            val inputStream = context.contentResolver.openInputStream(uri)
+            if (inputStream == null) {
+                Log.e(TAG, "compress: openInputStream returned null for uri=$uri")
+                return null
+            }
+            inputStream.use { stream ->
                 BitmapFactory.decodeStream(stream, null, bounds)
-            } ?: return null
+            }
+
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                Log.e(TAG, "compress: decodeBounds failed, outWidth=${bounds.outWidth}, outHeight=${bounds.outHeight}, outMimeType=${bounds.outMimeType}")
+                return null
+            }
 
             val sampleSize = calculateSampleSize(bounds.outWidth, bounds.outHeight, maxSide)
+            Log.d(TAG, "compress: uri=$uri, original=${bounds.outWidth}x${bounds.outHeight}, sampleSize=$sampleSize")
 
             // Decode with sample size
             val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
             val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
                 BitmapFactory.decodeStream(stream, null, decodeOpts)
-            } ?: return null
+            }
+
+            if (bitmap == null) {
+                Log.e(TAG, "compress: decodeStream returned null for uri=$uri")
+                return null
+            }
 
             // Further scale if still too large
             val scaled = scaleToFit(bitmap, maxSide)
@@ -49,8 +66,10 @@ class ImageCompressor @Inject constructor(
             if (scaled !== bitmap) scaled.recycle()
             bitmap.recycle()
 
+            Log.d(TAG, "compress: success, resultSize=${result.size} bytes")
             result
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "compress: failed for uri=$uri", e)
             null
         }
     }
@@ -95,6 +114,7 @@ class ImageCompressor @Inject constructor(
     }
 
     companion object {
+        private const val TAG = "ImageCompressor"
         const val DEFAULT_MAX_SIDE = 1920
         const val DEFAULT_QUALITY = 70
     }

@@ -9,8 +9,11 @@ import io.ktor.http.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.put
 import me.xiaok.opencode.domain.model.*
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -101,12 +104,12 @@ class OpenCodeApi @Inject constructor(
         archived: Long? = null,
         unarchive: Boolean = false,
     ): Session {
-        val body = buildMap {
+        val body = buildJsonObject {
             title?.let { put("title", it) }
             if (archived != null) {
-                put("time", mapOf("archived" to archived))
+                put("time", buildJsonObject { put("archived", archived) })
             } else if (unarchive) {
-                put("time", mapOf<String, Any?>("archived" to null))
+                put("time", buildJsonObject { put("archived", JsonNull) })
             }
         }
         return client.patch(conn.buildUrl("/session/$sessionId")) {
@@ -191,21 +194,34 @@ class OpenCodeApi @Inject constructor(
         parts: List<Map<String, String>>? = null,
         agent: String? = null,
         model: ModelRef? = null,
+        variant: String? = null,
         directory: String? = null,
     ) {
         val url = conn.buildUrl("/session/$sessionId/prompt_async")
-        val body = SendMessageRequest(
-            agent = agent,
-            model = model,
-            parts = parts,
-        )
-        Log.d(TAG, "promptAsync: POST $url body=$body")
+
+        // Build JSON body manually to omit null variant field (server rejects null)
+        val bodyJson = kotlinx.serialization.json.buildJsonObject {
+            agent?.let { put("agent", it) }
+            model?.let {
+                put("model", kotlinx.serialization.json.buildJsonObject {
+                    put("providerID", it.providerID)
+                    put("modelID", it.modelID)
+                })
+            }
+            variant?.let { put("variant", it) }
+            parts?.let { put("parts", kotlinx.serialization.json.JsonArray(it.map { p ->
+                kotlinx.serialization.json.buildJsonObject {
+                    p.forEach { (k, v) -> put(k, v) }
+                }
+            })) }
+        }
+        Log.d(TAG, "promptAsync: POST $url body=$bodyJson")
 
         val response: HttpResponse = client.post(url) {
             withAuth(conn)
             directory?.let { parameter("directory", it) }
             contentType(ContentType.Application.Json)
-            setBody(body)
+            setBody(bodyJson)
         }
 
         if (!response.status.isSuccess()) {
@@ -402,9 +418,11 @@ class OpenCodeApi @Inject constructor(
 
     suspend fun listQuestions(
         conn: ServerConnection,
+        directory: String? = null,
     ): List<QuestionRequest> {
         return client.get(conn.buildUrl("/question")) {
             withAuth(conn)
+            withDirectory(directory)
         }.body()
     }
 
@@ -412,22 +430,28 @@ class OpenCodeApi @Inject constructor(
         conn: ServerConnection,
         questionId: String,
         answers: List<List<String>>,
+        directory: String? = null,
     ): Boolean {
         val response = client.post(conn.buildUrl("/question/$questionId/reply")) {
             withAuth(conn)
+            withDirectory(directory)
             contentType(ContentType.Application.Json)
             setBody(mapOf("answers" to answers))
         }
+        Log.d("OpenCodeApi", "replyQuestion: id=$questionId status=${response.status.value} body=${response.bodyAsText()}")
         return response.status.value in 200..299
     }
 
     suspend fun rejectQuestion(
         conn: ServerConnection,
         questionId: String,
+        directory: String? = null,
     ): Boolean {
         val response = client.post(conn.buildUrl("/question/$questionId/reject")) {
             withAuth(conn)
+            withDirectory(directory)
         }
+        Log.d("OpenCodeApi", "rejectQuestion: id=$questionId status=${response.status.value} body=${response.bodyAsText()}")
         return response.status.value in 200..299
     }
 
@@ -983,6 +1007,7 @@ class OpenCodeApi @Inject constructor(
     data class SendMessageRequest(
         val agent: String? = null,
         val model: ModelRef? = null,
+        val variant: String? = null,
         val parts: List<Map<String, String>>? = null,
     )
 

@@ -145,4 +145,59 @@ sealed class SseEvent {
     data class ProjectUpdated(
         val project: Project,
     ) : SseEvent()
+
+    // === PTY Events ===
+
+    @Serializable
+    data class PtyCreated(
+        val info: PtyInfo,
+    ) : SseEvent()
+
+    @Serializable
+    data class PtyUpdated(
+        val info: PtyInfo,
+    ) : SseEvent()
+
+    @Serializable
+    data class PtyExited(
+        val id: String,
+        val exitCode: Int,
+    ) : SseEvent()
+
+    @Serializable
+    data class PtyDeleted(
+        val id: String,
+    ) : SseEvent()
+
+    // === MCP Events ===
+
+    @Serializable
+    data class McpBrowserOpenFailed(
+        val mcpName: String,
+        val url: String,
+    ) : SseEvent()
+
+    @Serializable
+    data class McpToolsChanged(
+        val server: String,
+    ) : SseEvent()
+
+    // === File Events ===
+
+    @Serializable
+    data class FileEdited(
+        val file: String,
+    ) : SseEvent()
+
+    // === Installation Events ===
+
+    @Serializable
+    data class InstallationUpdated(
+        val version: String,
+    ) : SseEvent()
+
+    @Serializable
+    data class InstallationUpdateAvailable(
+        val version: String,
+    ) : SseEvent()
 }

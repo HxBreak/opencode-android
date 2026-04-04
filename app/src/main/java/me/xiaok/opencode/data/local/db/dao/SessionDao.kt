@@ -23,4 +23,7 @@ interface SessionDao {
 
     @Query("DELETE FROM sessions WHERE serverId = :serverId")
     suspend fun deleteForServer(serverId: String)
+
+    @Query("DELETE FROM sessions")
+    suspend fun deleteAll()
 }

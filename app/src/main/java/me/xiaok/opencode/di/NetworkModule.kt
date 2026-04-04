@@ -85,6 +85,7 @@ object NetworkModule {
             engine {
                 preconfigured = okHttpClient
             }
+            expectSuccess = true
             install(ContentNegotiation) {
                 json(json)
             }

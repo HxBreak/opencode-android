@@ -9,6 +9,7 @@ import kotlinx.serialization.json.Json
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.api.SseClient
 import me.xiaok.opencode.data.local.security.CredentialStore
+import me.xiaok.opencode.domain.model.QuestionRequest
 import me.xiaok.opencode.domain.model.ServerConnection
 import me.xiaok.opencode.domain.model.Session
 import okhttp3.OkHttpClient
@@ -19,7 +20,7 @@ import javax.inject.Singleton
 /**
  * Manages all server connections.
  * Holds SseClient instances per server.
- * On connect: health check → start SSE → fetch initial state (sessions, statuses)
+ * On connect: health check → fetch initial state (sessions, questions) → start SSE
  * On disconnect: stop SSE → EventReducer.clearForServer()
  */
 @Singleton
@@ -76,9 +77,10 @@ class ServerRepository @Inject constructor(
     /**
      * Connect to a server:
      * 1. Health check → verify server is reachable
-     * 2. Start SSE stream → receive real-time events
-     * 3. Fetch initial state → sessions, statuses
-     * 4. Sync to cache
+     * 2. Fetch initial state → sessions, statuses
+     * 3. Sync to cache
+     * 4. Load pending questions (like Web's bootstrapDirectory)
+     * 5. Start SSE stream → receive real-time events
      */
     suspend fun connect(serverId: String) {
         val server = _servers.value.find { it.id == serverId } ?: return
@@ -104,7 +106,11 @@ class ServerRepository @Inject constructor(
             // 3. Sync to cache
             cacheRepository.syncSessions(serverId, sessions)
 
-            // 4. Start SSE
+            // 4. Load pending questions (like Web's bootstrapDirectory → sdk.question.list())
+            //    Also reloaded on every SSE CONNECTED (reconnect) in the collect block below.
+            loadPendingQuestions(server)
+
+            // 5. Start SSE
             val reconnectDelay = when (settingsRepository.reconnectMode.first()) {
                 "aggressive" -> 2_000L
                 "conservative" -> 30_000L
@@ -122,8 +128,12 @@ class ServerRepository @Inject constructor(
             val job = scope.launch {
                 sseClient.connect().collect { state ->
                     when (state) {
-                        is SseClient.ConnectionState.CONNECTED ->
+                        is SseClient.ConnectionState.CONNECTED -> {
                             updateConnectionState(serverId, ConnectionState.CONNECTED)
+                            // Reload pending questions on every (re)connect — matches Web's
+                            // sdk.question.list() during bootstrapDirectory()
+                            launch { loadPendingQuestions(server) }
+                        }
                         is SseClient.ConnectionState.DISCONNECTED ->
                             updateConnectionState(serverId, ConnectionState.DISCONNECTED)
                         is SseClient.ConnectionState.ERROR ->
@@ -164,6 +174,38 @@ class ServerRepository @Inject constructor(
     fun disconnectAll() {
         sseClients.keys.toList().forEach { disconnect(it) }
         eventReducer.clearAll()
+    }
+
+    /** Load pending questions from the server and populate EventReducer.
+     *  Queries questions per-directory since GET /question is instance-scoped
+     *  and requires x-opencode-directory header to return correct results.
+     */
+    private suspend fun loadPendingQuestions(server: ServerConnection) {
+        try {
+            // Extract unique directories from loaded sessions for this server.
+            // Sessions are loaded in connect() step 2 before this method runs.
+            val serverSessionIds = eventReducer.serverSessions.value[server.id] ?: emptySet()
+            val directories = serverSessionIds
+                .mapNotNull { eventReducer.sessions.value[it]?.directory }
+                .filter { it.isNotEmpty() }
+                .toSet()
+
+            Log.d(TAG, "loadPendingQuestions: server=${server.name}, directories=$directories")
+
+            val allQuestions = mutableListOf<QuestionRequest>()
+            for (dir in directories) {
+                val questions = api.listQuestions(server, directory = dir)
+                Log.d(TAG, "loadPendingQuestions: dir=$dir, count=${questions.size}")
+                allQuestions.addAll(questions)
+            }
+
+            Log.d(TAG, "loadPendingQuestions: server=${server.name}, total=${allQuestions.size}")
+            allQuestions.groupBy { it.sessionID }.forEach { (sessionId, questions) ->
+                eventReducer.setQuestions(sessionId, questions)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "loadPendingQuestions: failed for server=${server.name}", e)
+        }
     }
 
     /** Get a specific server by ID */

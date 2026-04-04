@@ -3,7 +3,9 @@ package me.xiaok.opencode.data.repository
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,6 +74,34 @@ class EventReducer @Inject constructor(
     /** Map of sessionId → last error message. Cleared when session status changes away from error. */
     val sessionErrors: StateFlow<Map<String, String>> = _sessionErrors.asStateFlow()
 
+    // === PTY State ===
+
+    private val _ptySessions = MutableStateFlow<Map<String, Map<String, PtyInfo>>>(emptyMap())
+    /** Map of serverId → (ptyId → PtyInfo). Tracks all active PTY sessions per server. */
+    val ptySessions: StateFlow<Map<String, Map<String, PtyInfo>>> = _ptySessions.asStateFlow()
+
+    // === Installation State ===
+
+    private val _installationVersion = MutableStateFlow<String?>(null)
+    /** Current server installation version (from installation.updated event). */
+    val installationVersion: StateFlow<String?> = _installationVersion.asStateFlow()
+
+    private val _installationUpdateAvailable = MutableStateFlow<String?>(null)
+    /** Latest available version when an update is detected (from installation.update-available event). */
+    val installationUpdateAvailable: StateFlow<String?> = _installationUpdateAvailable.asStateFlow()
+
+    // === MCP Browser State ===
+
+    private val _mcpBrowserOpenFailed = MutableStateFlow<Pair<String, String>?>(null)
+    /** Last mcp.browser.open.failed event: (mcpName, url). Null when no active failure. */
+    val mcpBrowserOpenFailed: StateFlow<Pair<String, String>?> = _mcpBrowserOpenFailed.asStateFlow()
+
+    // === File Events ===
+
+    private val _lastEditedFile = MutableStateFlow<String?>(null)
+    /** Last file edited by AI agent (from file.edited event). */
+    val lastEditedFile: StateFlow<String?> = _lastEditedFile.asStateFlow()
+
     // === Unread Tracking ===
 
     private val _unreadSessions = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
@@ -115,6 +145,71 @@ class EventReducer @Inject constructor(
     /** Clear viewed session when navigating away — no-op, persistence handles tracking */
     fun clearViewedSession(serverId: String) {
         // No-op: persistence handles actual tracking
+    }
+
+    // === Delta Batching (streaming text performance) ===
+
+    /** Accumulated text deltas keyed by "messageId:partId", flushed periodically */
+    private val pendingDeltas = mutableMapOf<String, StringBuilder>()
+
+    /** Scheduled flush job — cancelled and rescheduled on each delta */
+    private var flushJob: Job? = null
+
+    /** Flush interval in milliseconds — balances responsiveness vs. recomposition overhead */
+    private val deltaFlushIntervalMs = 50L
+
+    /**
+     * Apply all accumulated deltas to [_parts] immediately.
+     * Called by the scheduled flush job, and before any non-delta part operation
+     * that needs a consistent view (part updated/removed, message removed, etc.).
+     */
+    private fun flushPendingDeltas() {
+        if (pendingDeltas.isEmpty()) return
+        val snapshot = pendingDeltas.toMap()
+        pendingDeltas.clear()
+        flushJob = null
+
+        for ((key, accumulated) in snapshot) {
+            val (messageId, partId) = key.split(":", limit = 2)
+            val current = _parts.value[messageId] ?: continue
+            val updated = current.map { part ->
+                if (part.id != partId) return@map part
+                when (part) {
+                    is Part.Text -> part.copy(text = part.text + accumulated.toString())
+                    is Part.Reasoning -> part.copy(text = part.text + accumulated.toString())
+                    else -> part
+                }
+            }
+            _parts.value = _parts.value.toMutableMap().apply {
+                put(messageId, updated)
+            }
+        }
+    }
+
+    /** Flush deltas for specific messages (used when setting parts from API response). */
+    private fun flushPendingDeltasForMessages(messageIds: Set<String>) {
+        if (pendingDeltas.isEmpty()) return
+        val toFlush = pendingDeltas.keys.filter { key ->
+            val messageId = key.substringBefore(":")
+            messageId in messageIds
+        }
+        if (toFlush.isEmpty()) return
+        for (key in toFlush) {
+            val accumulated = pendingDeltas.remove(key) ?: continue
+            val (messageId, partId) = key.split(":", limit = 2)
+            val current = _parts.value[messageId] ?: continue
+            val updated = current.map { part ->
+                if (part.id != partId) return@map part
+                when (part) {
+                    is Part.Text -> part.copy(text = part.text + accumulated.toString())
+                    is Part.Reasoning -> part.copy(text = part.text + accumulated.toString())
+                    else -> part
+                }
+            }
+            _parts.value = _parts.value.toMutableMap().apply {
+                put(messageId, updated)
+            }
+        }
     }
 
     // === Main Dispatch ===
@@ -165,6 +260,23 @@ class EventReducer @Inject constructor(
                 is SseEvent.VcsBranchUpdated -> onVcsBranchUpdated(event.branch)
                 is SseEvent.LspUpdated -> { /* Client-side, ignore */ }
                 is SseEvent.ProjectUpdated -> onProjectUpdated(event.project)
+
+                // PTY events
+                is SseEvent.PtyCreated -> onPtyCreated(serverId, event.info)
+                is SseEvent.PtyUpdated -> onPtyUpdated(serverId, event.info)
+                is SseEvent.PtyExited -> onPtyExited(serverId, event.id, event.exitCode)
+                is SseEvent.PtyDeleted -> onPtyDeleted(serverId, event.id)
+
+                // MCP events
+                is SseEvent.McpBrowserOpenFailed -> onMcpBrowserOpenFailed(event.mcpName, event.url)
+                is SseEvent.McpToolsChanged -> onMcpToolsChanged(event.server)
+
+                // File events
+                is SseEvent.FileEdited -> onFileEdited(event.file)
+
+                // Installation events
+                is SseEvent.InstallationUpdated -> onInstallationUpdated(event.version)
+                is SseEvent.InstallationUpdateAvailable -> onInstallationUpdateAvailable(event.version)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing event ${event::class.simpleName}", e)
@@ -235,6 +347,8 @@ class EventReducer @Inject constructor(
 
     /** Bulk init parts for a message, merging with any existing SSE-accumulated parts */
     fun setParts(messageId: String, parts: List<Part>) {
+        // Flush pending deltas for this message before overwriting with API data
+        flushPendingDeltasForMessages(setOf(messageId))
         val existing = _parts.value[messageId] ?: emptyList()
         val merged = if (existing.isEmpty()) parts else mergeParts(existing, parts)
         _parts.value = _parts.value.toMutableMap().apply {
@@ -244,7 +358,21 @@ class EventReducer @Inject constructor(
 
     /** Cleanup on server disconnect */
     fun clearForServer(serverId: String) {
+        // Flush any pending deltas before clearing server state
+        flushPendingDeltas()
+
         val sessionIds = _serverSessions.value[serverId] ?: emptySet()
+
+        // Clear pending deltas for sessions belonging to this server
+        val messageIdsToClear = mutableSetOf<String>()
+        for ((key, _) in pendingDeltas) {
+            val messageId = key.substringBefore(":")
+            // Check if this messageId belongs to a session being cleared
+            // (We can't easily determine this without traversing _parts, so flush all to be safe)
+        }
+        pendingDeltas.clear()
+        flushJob?.cancel()
+        flushJob = null
 
         // Remove sessions
         _sessions.value = _sessions.value.toMutableMap().apply {
@@ -298,10 +426,18 @@ class EventReducer @Inject constructor(
 
         // Remove from active servers
         _activeServers.value = _activeServers.value - serverId
+
+        // Remove PTY sessions for this server
+        _ptySessions.value = _ptySessions.value.toMutableMap().apply {
+            remove(serverId)
+        }
     }
 
     /** Full state reset */
     fun clearAll() {
+        flushJob?.cancel()
+        flushJob = null
+        pendingDeltas.clear()
         _activeServers.value = emptySet()
         _serverSessions.value = emptyMap()
         _sessions.value = emptyMap()
@@ -315,6 +451,11 @@ class EventReducer @Inject constructor(
         _vcsBranch.value = null
         _projectInfo.value = null
         _unreadSessions.value = emptyMap()
+        _ptySessions.value = emptyMap()
+        _installationVersion.value = null
+        _installationUpdateAvailable.value = null
+        _mcpBrowserOpenFailed.value = null
+        _lastEditedFile.value = null
     }
 
     // === Optimistic Updates ===
@@ -528,6 +669,8 @@ class EventReducer @Inject constructor(
     }
 
     private fun onMessageRemoved(sessionId: String, messageId: String) {
+        // Flush pending deltas before removing a message
+        flushPendingDeltas()
         val current = _messages.value[sessionId] ?: return
         _messages.value = _messages.value.toMutableMap().apply {
             put(sessionId, current.filterNot { it.info.id == messageId })
@@ -536,6 +679,8 @@ class EventReducer @Inject constructor(
     }
 
     private fun onMessagePartUpdated(part: Part) {
+        // Flush any pending deltas for this part before applying the full update
+        flushPendingDeltas()
         val messageId = part.messageId
         val current = _parts.value[messageId] ?: emptyList()
         val index = current.indexOfFirst { it.id == part.id }
@@ -557,33 +702,34 @@ class EventReducer @Inject constructor(
         field: String,
         delta: String,
     ) {
+        // Stub creation: if parts don't exist yet, create immediately (can't batch without existing part)
         var current = _parts.value[messageId]
         if (current == null) {
-            // Parts not initialized yet — create a stub part to accumulate deltas
             Log.d(TAG, "onMessagePartDelta: STUB msgId=$messageId, partId=$partId, field=$field, deltaLen=${delta.length}")
             val stub = when (field) {
                 "text" -> Part.Text(id = partId, sessionId = sessionId, messageId = messageId, text = delta)
-                else -> return // Unknown field, can't create stub
+                else -> return
             }
             _parts.value = _parts.value.toMutableMap().apply {
                 put(messageId, listOf(stub))
             }
             return
         }
-        val updated = current.map { part ->
-            if (part.id != partId) return@map part
-            when {
-                part is Part.Text && field == "text" -> part.copy(text = part.text + delta)
-                part is Part.Reasoning && field == "text" -> part.copy(text = part.text + delta)
-                else -> part
-            }
-        }
-        _parts.value = _parts.value.toMutableMap().apply {
-            put(messageId, updated)
+
+        // Batch: accumulate delta in memory, schedule flush
+        if (field != "text") return // Only batch text field deltas
+        val key = "$messageId:$partId"
+        pendingDeltas.getOrPut(key) { StringBuilder() }.append(delta)
+        flushJob?.cancel()
+        flushJob = scope.launch(Dispatchers.IO) {
+            delay(deltaFlushIntervalMs)
+            flushPendingDeltas()
         }
     }
 
     private fun onMessagePartRemoved(sessionId: String, messageId: String, partId: String) {
+        // Flush pending deltas before removing a part
+        flushPendingDeltas()
         val current = _parts.value[messageId] ?: return
         _parts.value = _parts.value.toMutableMap().apply {
             put(messageId, current.filterNot { it.id == partId })
@@ -635,6 +781,76 @@ class EventReducer @Inject constructor(
 
     private fun onProjectUpdated(project: Project) {
         _projectInfo.value = project
+    }
+
+    // === Private Event Handlers: PTY ===
+
+    private fun onPtyCreated(serverId: String, info: PtyInfo) {
+        Log.d(TAG, "onPtyCreated: server=$serverId, ptyId=${info.id}, title=${info.title}")
+        val serverPtys = _ptySessions.value[serverId] ?: emptyMap()
+        _ptySessions.value = _ptySessions.value.toMutableMap().apply {
+            put(serverId, serverPtys + (info.id to info))
+        }
+    }
+
+    private fun onPtyUpdated(serverId: String, info: PtyInfo) {
+        Log.d(TAG, "onPtyUpdated: server=$serverId, ptyId=${info.id}, status=${info.status}")
+        val serverPtys = _ptySessions.value[serverId] ?: emptyMap()
+        if (info.id in serverPtys) {
+            _ptySessions.value = _ptySessions.value.toMutableMap().apply {
+                put(serverId, serverPtys + (info.id to info))
+            }
+        }
+    }
+
+    private fun onPtyExited(serverId: String, ptyId: String, exitCode: Int) {
+        Log.d(TAG, "onPtyExited: server=$serverId, ptyId=$ptyId, exitCode=$exitCode")
+        val serverPtys = _ptySessions.value[serverId] ?: return
+        val existing = serverPtys[ptyId] ?: return
+        // Update status to "exited" in place
+        _ptySessions.value = _ptySessions.value.toMutableMap().apply {
+            put(serverId, serverPtys + (ptyId to existing.copy(status = "exited")))
+        }
+    }
+
+    private fun onPtyDeleted(serverId: String, ptyId: String) {
+        Log.d(TAG, "onPtyDeleted: server=$serverId, ptyId=$ptyId")
+        val serverPtys = _ptySessions.value[serverId] ?: return
+        _ptySessions.value = _ptySessions.value.toMutableMap().apply {
+            put(serverId, serverPtys - ptyId)
+        }
+    }
+
+    // === Private Event Handlers: MCP ===
+
+    private fun onMcpBrowserOpenFailed(mcpName: String, url: String) {
+        Log.d(TAG, "onMcpBrowserOpenFailed: mcpName=$mcpName, url=$url")
+        _mcpBrowserOpenFailed.value = mcpName to url
+    }
+
+    private fun onMcpToolsChanged(server: String) {
+        Log.d(TAG, "onMcpToolsChanged: server=$server — tools list for MCP server changed, UI should refresh")
+        // No state to update directly — ViewModels should observe this event via cacheRepository
+        // or implement their own refresh trigger
+    }
+
+    // === Private Event Handlers: File ===
+
+    private fun onFileEdited(file: String) {
+        Log.d(TAG, "onFileEdited: file=$file")
+        _lastEditedFile.value = file
+    }
+
+    // === Private Event Handlers: Installation ===
+
+    private fun onInstallationUpdated(version: String) {
+        Log.d(TAG, "onInstallationUpdated: version=$version")
+        _installationVersion.value = version
+    }
+
+    private fun onInstallationUpdateAvailable(version: String) {
+        Log.d(TAG, "onInstallationUpdateAvailable: version=$version")
+        _installationUpdateAvailable.value = version
     }
 
     companion object {

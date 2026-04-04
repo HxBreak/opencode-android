@@ -1,6 +1,7 @@
 package me.xiaok.opencode.domain.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class ProviderList(
@@ -25,7 +26,11 @@ data class Model(
     val capabilities: ModelCapabilities = ModelCapabilities(),
     val cost: ModelCost = ModelCost(),
     val limit: ModelLimits = ModelLimits(),
-)
+    val variants: Map<String, JsonElement> = emptyMap(),
+) {
+    /** Variant keys available for this model (e.g. "low", "medium", "high"). */
+    val variantNames: List<String> get() = variants.keys.toList()
+}
 
 @Serializable
 data class ModelCapabilities(

@@ -273,6 +273,18 @@ class CacheRepository @Inject constructor(
 
     // === Mappers ===
 
+    // === Bulk Clear ===
+
+    /**
+     * Delete all cached sessions, messages, and view logs from Room.
+     * Used by the "Clear cache" setting to free up storage.
+     */
+    suspend fun clearAllCacheData() = withContext(Dispatchers.IO) {
+        sessionDao.deleteAll()
+        messageDao.deleteAll()
+        sessionViewLogDao.deleteAll()
+    }
+
     private fun Session.toEntity(serverId: String): SessionEntity {
         return SessionEntity(
             id = id,

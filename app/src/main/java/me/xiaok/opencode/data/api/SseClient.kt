@@ -280,7 +280,7 @@ class SseClient(
                 )
                 "permission.replied" -> {
                     val sessionId = properties["sessionID"]?.jsonPrimitive?.content ?: return null
-                    val requestId = properties["id"]?.jsonPrimitive?.content ?: return null
+                    val requestId = properties["requestID"]?.jsonPrimitive?.content ?: return null
                     SseEvent.PermissionReplied(sessionId, requestId)
                 }
                 "question.asked" -> {
@@ -290,12 +290,14 @@ class SseClient(
                 }
                 "question.replied" -> {
                     val sessionId = properties["sessionID"]?.jsonPrimitive?.content ?: return null
-                    val requestId = properties["id"]?.jsonPrimitive?.content ?: return null
+                    val requestId = properties["requestID"]?.jsonPrimitive?.content ?: return null
+                    Log.d(TAG, "question.replied: sessionID=$sessionId, requestID=$requestId")
                     SseEvent.QuestionReplied(sessionId, requestId)
                 }
                 "question.rejected" -> {
                     val sessionId = properties["sessionID"]?.jsonPrimitive?.content ?: return null
-                    val requestId = properties["id"]?.jsonPrimitive?.content ?: return null
+                    val requestId = properties["requestID"]?.jsonPrimitive?.content ?: return null
+                    Log.d(TAG, "question.rejected: sessionID=$sessionId, requestID=$requestId")
                     SseEvent.QuestionRejected(sessionId, requestId)
                 }
 
@@ -313,6 +315,52 @@ class SseClient(
                 "project.updated" -> SseEvent.ProjectUpdated(
                     json.decodeFromJsonElement<Project>(properties["project"]!!)
                 )
+
+                // PTY events
+                "pty.created" -> {
+                    val infoElement = properties["info"] ?: return null
+                    SseEvent.PtyCreated(json.decodeFromJsonElement<PtyInfo>(infoElement))
+                }
+                "pty.updated" -> {
+                    val infoElement = properties["info"] ?: return null
+                    SseEvent.PtyUpdated(json.decodeFromJsonElement<PtyInfo>(infoElement))
+                }
+                "pty.exited" -> {
+                    val id = properties["id"]?.jsonPrimitive?.content ?: return null
+                    val exitCode = properties["exitCode"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                    SseEvent.PtyExited(id, exitCode)
+                }
+                "pty.deleted" -> {
+                    val id = properties["id"]?.jsonPrimitive?.content ?: return null
+                    SseEvent.PtyDeleted(id)
+                }
+
+                // MCP events
+                "mcp.browser.open.failed" -> {
+                    val mcpName = properties["mcpName"]?.jsonPrimitive?.content ?: return null
+                    val url = properties["url"]?.jsonPrimitive?.content ?: return null
+                    SseEvent.McpBrowserOpenFailed(mcpName, url)
+                }
+                "mcp.tools.changed" -> {
+                    val server = properties["server"]?.jsonPrimitive?.content ?: return null
+                    SseEvent.McpToolsChanged(server)
+                }
+
+                // File events
+                "file.edited" -> {
+                    val file = properties["file"]?.jsonPrimitive?.content ?: return null
+                    SseEvent.FileEdited(file)
+                }
+
+                // Installation events
+                "installation.updated" -> {
+                    val version = properties["version"]?.jsonPrimitive?.content ?: return null
+                    SseEvent.InstallationUpdated(version)
+                }
+                "installation.update-available" -> {
+                    val version = properties["version"]?.jsonPrimitive?.content ?: return null
+                    SseEvent.InstallationUpdateAvailable(version)
+                }
 
                 else -> {
                     Log.w(TAG, "Unknown SSE event type: $type")

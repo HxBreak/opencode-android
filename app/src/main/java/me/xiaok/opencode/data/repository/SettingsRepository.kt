@@ -29,10 +29,6 @@ class SettingsRepository @Inject constructor(
     val dynamicColor: Flow<Boolean> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[DYNAMIC_COLOR] ?: true }
     suspend fun setDynamicColor(value: Boolean) = dataStore.edit { it[DYNAMIC_COLOR] = value }
 
-    // AMOLED dark
-    val amoledDark: Flow<Boolean> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[AMOLED_DARK] ?: false }
-    suspend fun setAmoledDark(value: Boolean) = dataStore.edit { it[AMOLED_DARK] = value }
-
     // Reconnect mode: "aggressive", "normal", "conservative"
     val reconnectMode: Flow<String> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[RECONNECT_MODE] ?: "normal" }
     suspend fun setReconnectMode(value: String) = dataStore.edit { it[RECONNECT_MODE] = value }
@@ -159,10 +155,29 @@ class SettingsRepository @Inject constructor(
         prefs[RECENT_AGENTS] = (existing + "$serverId:$agent").joinToString(",")
     }
 
+    // Recent variant selection per server+model — stored as "serverId:providerId/modelId:variant"
+    fun getRecentVariant(serverId: String, model: ModelRef): Flow<String?> = dataStore.data.catch { emit(emptyPreferences()) }.map { prefs ->
+        val raw = prefs[RECENT_VARIANTS] ?: ""
+        val key = "$serverId:${model.providerID}/${model.modelID}"
+        val entry = raw.split(",").find { it.startsWith("$key:") }
+        entry?.removePrefix("$key:")
+    }
+    suspend fun setRecentVariant(serverId: String, model: ModelRef, variant: String) = dataStore.edit { prefs ->
+        val raw = prefs[RECENT_VARIANTS] ?: ""
+        val key = "$serverId:${model.providerID}/${model.modelID}"
+        val existing = raw.split(",").filter { it.isNotEmpty() && !it.startsWith("$key:") }
+        prefs[RECENT_VARIANTS] = (existing + "$key:$variant").joinToString(",")
+    }
+    suspend fun clearRecentVariant(serverId: String, model: ModelRef) = dataStore.edit { prefs ->
+        val raw = prefs[RECENT_VARIANTS] ?: ""
+        val key = "$serverId:${model.providerID}/${model.modelID}"
+        val existing = raw.split(",").filter { it.isNotEmpty() && !it.startsWith("$key:") }
+        prefs[RECENT_VARIANTS] = existing.joinToString(",")
+    }
+
     companion object {
         private val THEME = stringPreferencesKey("theme")
         private val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
-        private val AMOLED_DARK = booleanPreferencesKey("amoled_dark")
         private val RECONNECT_MODE = stringPreferencesKey("reconnect_mode")
         private val CHAT_FONT_SIZE = stringPreferencesKey("chat_font_size")
         private val COMPACT_MESSAGES = booleanPreferencesKey("compact_messages")
@@ -178,6 +193,7 @@ class SettingsRepository @Inject constructor(
         private val HIDDEN_PROVIDERS = stringPreferencesKey("hidden_providers")
         private val RECENT_MODELS = stringPreferencesKey("recent_models")
         private val RECENT_AGENTS = stringPreferencesKey("recent_agents")
+        private val RECENT_VARIANTS = stringPreferencesKey("recent_variants")
         private val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         private val IMAGE_MAX_SIDE = intPreferencesKey("image_max_side")
         private val IMAGE_WEBP_QUALITY = intPreferencesKey("image_webp_quality")
