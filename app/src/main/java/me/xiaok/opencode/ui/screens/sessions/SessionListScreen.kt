@@ -839,21 +839,23 @@ private fun SessionRow(
                     expanded = showContextMenu,
                     onDismissRequest = { showContextMenu = false },
                 ) {
-                    if (session.time.archived != null) {
-                        DropdownMenuItem(
-                            text = { Text("Unarchive") },
-                            onClick = {
-                                showContextMenu = false
-                                onUnarchive()
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Unarchive,
-                                    contentDescription = null,
-                                )
-                            },
-                        )
-                    } else {
+                    // TODO: Unarchive disabled — server Zod schema doesn't accept null yet
+                    // if (session.time.archived != null) {
+                    //     DropdownMenuItem(
+                    //         text = { Text("Unarchive") },
+                    //         onClick = {
+                    //             showContextMenu = false
+                    //             onUnarchive()
+                    //         },
+                    //         leadingIcon = {
+                    //             Icon(
+                    //                 imageVector = Icons.Default.Unarchive,
+                    //                 contentDescription = null,
+                    //             )
+                    //         },
+                    //     )
+                    // } else
+                    if (session.time.archived == null) {
                         DropdownMenuItem(
                             text = { Text("Archive") },
                             onClick = {

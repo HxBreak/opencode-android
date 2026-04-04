@@ -13,6 +13,7 @@ import me.xiaok.opencode.domain.model.FileNode
 import me.xiaok.opencode.domain.model.PathInfo
 import me.xiaok.opencode.domain.model.Project
 import me.xiaok.opencode.domain.model.ServerConnection
+import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
 
 data class ProjectListUiState(
@@ -20,6 +21,7 @@ data class ProjectListUiState(
     val projects: List<Project> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
+    val isConnected: Boolean = true,
 )
 
 data class DirectoryBrowserState(
@@ -48,6 +50,7 @@ class ProjectListViewModel @Inject constructor(
     private val api: OpenCodeApi,
     private val serverRepository: ServerRepository,
     private val eventReducer: EventReducer,
+    private val errorCollector: ErrorCollector,
 ) : ViewModel() {
 
     private val serverId: String = savedStateHandle["serverId"]
@@ -70,17 +73,21 @@ class ProjectListViewModel @Inject constructor(
 
     private val _serverName = MutableStateFlow("")
 
+    private val _isConnected = MutableStateFlow(false)
+
     val uiState: StateFlow<ProjectListUiState> = combine(
         _projects,
         _isLoading,
         _error,
         _serverName,
-    ) { projects, loading, error, serverName ->
+        _isConnected,
+    ) { projects, loading, error, serverName, connected ->
         ProjectListUiState(
             serverName = serverName,
             projects = projects,
             isLoading = loading,
             error = error,
+            isConnected = connected,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProjectListUiState())
 
@@ -88,6 +95,7 @@ class ProjectListViewModel @Inject constructor(
 
     init {
         loadServerName()
+        observeConnectionState()
         loadProjects()
 
         // Debounced autocomplete pipeline
@@ -96,6 +104,14 @@ class ProjectListViewModel @Inject constructor(
                 .debounce(300)
                 .distinctUntilChanged()
                 .collect { query -> performAutocomplete(query) }
+        }
+    }
+
+    private fun observeConnectionState() {
+        viewModelScope.launch {
+            serverRepository.connectionStates.collect { states ->
+                _isConnected.value = states[serverId] == ServerRepository.ConnectionState.CONNECTED
+            }
         }
     }
 
@@ -123,6 +139,7 @@ class ProjectListViewModel @Inject constructor(
                 val projects = api.listProjects(server)
                 _projects.value = projects
             } catch (e: Exception) {
+                errorCollector.logError(e, "ProjectList")
                 _error.value = e.message ?: "Failed to load projects"
             } finally {
                 _isLoading.value = false
@@ -161,6 +178,7 @@ class ProjectListViewModel @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
+                errorCollector.logError(e, "ProjectList")
                 _browserState.update {
                     it.copy(isLoading = false, error = e.message ?: "Failed to browse directory")
                 }

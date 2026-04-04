@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -106,6 +107,7 @@ fun ServerProvidersRoute(
         },
         onClearOAuthState = { viewModel.clearOAuthState() },
         onClearError = { viewModel.clearError() },
+        onSearchQueryChanged = { viewModel.setSearchQuery(it) },
     )
 }
 
@@ -125,6 +127,7 @@ fun ServerProvidersScreen(
     onCompleteOAuth: (providerId: String, methodIndex: Int, code: String) -> Unit,
     onClearOAuthState: () -> Unit,
     onClearError: () -> Unit,
+    onSearchQueryChanged: (String) -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -135,12 +138,20 @@ fun ServerProvidersScreen(
     var showConnectDialog by remember { mutableStateOf<String?>(null) } // providerId
     var showOAuthDialog by remember { mutableStateOf<String?>(null) } // providerId
 
-    // Determine connected vs available providers
-    val connectedProviders = uiState.providers.all.filter { provider ->
-        provider.id in uiState.providers.connected
+    // Determine connected vs available providers, filtered by search query
+    val connectedProviders = remember(uiState.providers, uiState.searchQuery) {
+        val q = uiState.searchQuery
+        uiState.providers.all.filter { provider ->
+            provider.id in uiState.providers.connected &&
+                (q.isBlank() || provider.matchesQuery(q))
+        }
     }
-    val availableProviders = uiState.providers.all.filter { provider ->
-        provider.id !in uiState.providers.connected
+    val availableProviders = remember(uiState.providers, uiState.searchQuery) {
+        val q = uiState.searchQuery
+        uiState.providers.all.filter { provider ->
+            provider.id !in uiState.providers.connected &&
+                (q.isBlank() || provider.matchesQuery(q))
+        }
     }
 
     // Error snackbar
@@ -254,57 +265,66 @@ fun ServerProvidersScreen(
                     )
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 8.dp,
-                        bottom = 16.dp,
-                    ),
-                ) {
-                    // Connected section
-                    if (connectedProviders.isNotEmpty()) {
-                        item {
-                            SectionHeader(title = "Connected")
-                        }
-                        items(
-                            items = connectedProviders,
-                            key = { it.id },
-                        ) { provider ->
-                            ProviderCard(
-                                provider = provider,
-                                isConnected = true,
-                                onDisconnect = { onDisconnectProvider(provider.id) },
-                                onConnect = {},
-                            )
-                        }
-                    }
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Search bar
+                    SearchBar(
+                        query = uiState.searchQuery,
+                        onQueryChanged = onSearchQueryChanged,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
 
-                    // Available section
-                    if (availableProviders.isNotEmpty()) {
-                        item {
-                            SectionHeader(title = "Available")
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 8.dp,
+                            bottom = 16.dp,
+                        ),
+                    ) {
+                        // Connected section
+                        if (connectedProviders.isNotEmpty()) {
+                            item {
+                                SectionHeader(title = "Connected")
+                            }
+                            items(
+                                items = connectedProviders,
+                                key = { it.id },
+                            ) { provider ->
+                                ProviderCard(
+                                    provider = provider,
+                                    isConnected = true,
+                                    onDisconnect = { onDisconnectProvider(provider.id) },
+                                    onConnect = {},
+                                )
+                            }
                         }
-                        items(
-                            items = availableProviders,
-                            key = { it.id },
-                        ) { provider ->
-                            ProviderCard(
-                                provider = provider,
-                                isConnected = false,
-                                onDisconnect = {},
-                                onConnect = {
-                                    val authMethods = uiState.authMethods
-                                    val hasOAuth = hasOAuthMethod(authMethods, provider.id)
-                                    if (hasOAuth) {
-                                        showOAuthDialog = provider.id
-                                    } else {
-                                        showConnectDialog = provider.id
-                                    }
-                                },
-                            )
+
+                        // Available section
+                        if (availableProviders.isNotEmpty()) {
+                            item {
+                                SectionHeader(title = "Available")
+                            }
+                            items(
+                                items = availableProviders,
+                                key = { it.id },
+                            ) { provider ->
+                                ProviderCard(
+                                    provider = provider,
+                                    isConnected = false,
+                                    onDisconnect = {},
+                                    onConnect = {
+                                        val authMethods = uiState.authMethods
+                                        val hasOAuth = hasOAuthMethod(authMethods, provider.id)
+                                        if (hasOAuth) {
+                                            showOAuthDialog = provider.id
+                                        } else {
+                                            showConnectDialog = provider.id
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -647,6 +667,38 @@ private fun OAuthCodeDialog(
 }
 
 // ---------------------------------------------------------------------------
+// Search Bar
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun SearchBar(
+    query: String,
+    onQueryChanged: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChanged,
+        modifier = modifier.fillMaxWidth(),
+        placeholder = {
+            Text(
+                text = "Search providers...",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        singleLine = true,
+        shape = MaterialTheme.shapes.medium,
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Auth Method Helpers
 // ---------------------------------------------------------------------------
 
@@ -682,4 +734,12 @@ private fun findOAuthMethodIndex(authMethods: JsonElement?, providerId: String):
     } catch (_: Exception) {
         null
     }
+}
+
+/**
+ * Check if a provider matches a search query by name only.
+ */
+private fun Provider.matchesQuery(query: String): Boolean {
+    val q = query.lowercase()
+    return name.lowercase().contains(q)
 }

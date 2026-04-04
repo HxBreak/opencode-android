@@ -86,7 +86,14 @@ fun HomeRoute(
         onRemoveServer = { viewModel.removeServer(it) },
         onConnect = { viewModel.connect(it) },
         onDisconnect = { viewModel.disconnect(it) },
-        onNavigateToProjects = onNavigateToProjects,
+        onNavigateToProjects = { serverId ->
+            // Always navigate immediately; connect in background if needed
+            val state = uiState.connectionStates[serverId]
+            if (state != ServerRepository.ConnectionState.CONNECTED) {
+                viewModel.connect(serverId)
+            }
+            onNavigateToProjects(serverId)
+        },
         onNavigateToServerSettings = onNavigateToServerSettings,
         onNavigateToSettings = onNavigateToSettings,
     )
@@ -286,21 +293,12 @@ private fun ServerCard(
 
     val isConnected = connectionState is ServerRepository.ConnectionState.CONNECTED
     val isConnecting = connectionState is ServerRepository.ConnectionState.CONNECTING
-    val isDisconnected = connectionState is ServerRepository.ConnectionState.DISCONNECTED
     var showMenu by remember { mutableStateOf(false) }
 
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .then(
-                if (isConnected) {
-                    Modifier.clickable(onClick = onNavigateToProjects)
-                } else if (isDisconnected || connectionState is ServerRepository.ConnectionState.ERROR) {
-                    Modifier.clickable(onClick = onConnect)
-                } else {
-                    Modifier
-                }
-            ),
+            .clickable(onClick = onNavigateToProjects),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
@@ -335,7 +333,7 @@ private fun ServerCard(
                     text = when (connectionState) {
                         is ServerRepository.ConnectionState.CONNECTED -> server.baseUrl.removePrefix("http://").removePrefix("https://")
                         is ServerRepository.ConnectionState.CONNECTING -> "Connecting…"
-                        is ServerRepository.ConnectionState.DISCONNECTED -> "Tap to connect"
+                        is ServerRepository.ConnectionState.DISCONNECTED -> "Tap to open"
                         is ServerRepository.ConnectionState.ERROR -> connectionState.message
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -375,14 +373,16 @@ private fun ServerCard(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
                 ) {
-                    if (isConnected) {
+                    if (!isConnected) {
                         DropdownMenuItem(
-                            text = { Text("Projects") },
+                            text = { Text("Connect") },
                             onClick = {
                                 showMenu = false
-                                onNavigateToProjects()
+                                onConnect()
                             },
                         )
+                    }
+                    if (isConnected) {
                         DropdownMenuItem(
                             text = { Text("Server Settings") },
                             onClick = {

@@ -13,6 +13,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.ServerRepository
+import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
 
 data class ProjectConfigUiState(
@@ -28,6 +29,7 @@ class ProjectConfigViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val api: OpenCodeApi,
     private val serverRepository: ServerRepository,
+    private val errorCollector: ErrorCollector,
 ) : ViewModel() {
 
     private val serverId: String = savedStateHandle["serverId"]
@@ -55,6 +57,7 @@ class ProjectConfigViewModel @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
+                errorCollector.logError(e, "ProjectConfig")
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }
         }
@@ -79,6 +82,7 @@ class ProjectConfigViewModel @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
+                errorCollector.logError(e, "ProjectConfig")
                 _uiState.update { it.copy(isSaving = false, error = e.message) }
             }
         }

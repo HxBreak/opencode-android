@@ -5,15 +5,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.domain.model.Provider
+import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
 
 data class ModelFilterUiState(
@@ -31,41 +31,14 @@ class ServerModelFilterViewModel @Inject constructor(
     private val api: OpenCodeApi,
     private val serverRepository: ServerRepository,
     private val settingsRepository: SettingsRepository,
+    private val errorCollector: ErrorCollector,
 ) : ViewModel() {
 
     private val serverId: String = savedStateHandle["serverId"]
         ?: throw IllegalArgumentException("serverId is required")
 
-    private val _providers = MutableStateFlow<List<Provider>>(emptyList())
-    private val _hiddenProviders = MutableStateFlow<Set<String>>(emptySet())
-    private val _hiddenModels = MutableStateFlow<Set<String>>(emptySet())
-    private val _searchQuery = MutableStateFlow("")
-    private val _isLoading = MutableStateFlow(false)
-    private val _error = MutableStateFlow<String?>(null)
-
-    val uiState: StateFlow<ModelFilterUiState> = _providers
-        .combine(_hiddenProviders) { providers, hiddenProviders ->
-            ModelFilterPartialState(providers, hiddenProviders = hiddenProviders)
-        }.combine(_hiddenModels) { partial, hiddenModels ->
-            partial.copy(hiddenModels = hiddenModels)
-        }.combine(_searchQuery) { partial, searchQuery ->
-            ModelFilterUiState(
-                providers = partial.providers,
-                hiddenProviders = partial.hiddenProviders,
-                hiddenModels = partial.hiddenModels,
-                searchQuery = searchQuery,
-            )
-        }.combine(_isLoading) { state, isLoading ->
-            state.copy(isLoading = isLoading)
-        }.combine(_error) { state, error ->
-            state.copy(error = error)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ModelFilterUiState())
-
-    private data class ModelFilterPartialState(
-        val providers: List<Provider>,
-        val hiddenProviders: Set<String> = emptySet(),
-        val hiddenModels: Set<String> = emptySet(),
-    )
+    private val _uiState = MutableStateFlow(ModelFilterUiState())
+    val uiState: StateFlow<ModelFilterUiState> = _uiState.asStateFlow()
 
     init {
         loadProviders()
@@ -76,7 +49,7 @@ class ServerModelFilterViewModel @Inject constructor(
     private fun loadHiddenModels() {
         viewModelScope.launch {
             settingsRepository.getHiddenModels(serverId).collect { saved ->
-                _hiddenModels.value = saved
+                _uiState.value = _uiState.value.copy(hiddenModels = saved)
             }
         }
     }
@@ -84,7 +57,7 @@ class ServerModelFilterViewModel @Inject constructor(
     private fun loadHiddenProviders() {
         viewModelScope.launch {
             settingsRepository.getHiddenProviders(serverId).collect { saved ->
-                _hiddenProviders.value = saved
+                _uiState.value = _uiState.value.copy(hiddenProviders = saved)
             }
         }
     }
@@ -93,43 +66,70 @@ class ServerModelFilterViewModel @Inject constructor(
         viewModelScope.launch {
             val server = serverRepository.getServer(serverId)
             if (server == null) {
-                _error.value = "Server not found"
+                _uiState.value = _uiState.value.copy(error = "Server not found")
                 return@launch
             }
-            _isLoading.value = true
-            _error.value = null
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
                 val providerList = api.getProviders(server)
-                _providers.value = providerList.all.filter { it.id in providerList.connected.toSet() }
+                _uiState.value = _uiState.value.copy(
+                    providers = providerList.all.filter { it.id in providerList.connected.toSet() }
+                )
             } catch (e: Exception) {
-                _error.value = e.message ?: "Failed to load providers"
+                errorCollector.logError(e, "ServerModelFilter")
+                _uiState.value = _uiState.value.copy(error = e.message ?: "Failed to load providers")
             } finally {
-                _isLoading.value = false
+                _uiState.value = _uiState.value.copy(isLoading = false)
             }
         }
     }
 
     fun toggleModelVisibility(modelId: String) {
-        val updated = _hiddenModels.value.toMutableSet().apply {
-            if (contains(modelId)) remove(modelId) else add(modelId)
+        val state = _uiState.updateAndGet { current ->
+            val updated = current.hiddenModels.toMutableSet().apply {
+                if (contains(modelId)) remove(modelId) else add(modelId)
+            }
+            current.copy(hiddenModels = updated)
         }
-        _hiddenModels.value = updated
         viewModelScope.launch {
-            settingsRepository.setHiddenModels(serverId, updated)
+            settingsRepository.setHiddenModels(serverId, state.hiddenModels)
         }
     }
 
     fun toggleProviderVisibility(providerId: String) {
-        val updated = _hiddenProviders.value.toMutableSet().apply {
-            if (contains(providerId)) remove(providerId) else add(providerId)
+        val currentState = _uiState.value
+        val isCurrentlyHidden = providerId in currentState.hiddenProviders
+
+        val updatedProviders = currentState.hiddenProviders.toMutableSet().apply {
+            if (isCurrentlyHidden) remove(providerId) else add(providerId)
         }
-        _hiddenProviders.value = updated
+
+        val provider = currentState.providers.find { it.id == providerId }
+        val updatedModels = if (provider != null) {
+            currentState.hiddenModels.toMutableSet().apply {
+                if (isCurrentlyHidden) {
+                    removeAll(provider.models.keys)
+                } else {
+                    addAll(provider.models.keys)
+                }
+            }
+        } else {
+            currentState.hiddenModels
+        }
+
+        // Single atomic update — no intermediate state
+        _uiState.value = currentState.copy(
+            hiddenProviders = updatedProviders,
+            hiddenModels = updatedModels,
+        )
+
         viewModelScope.launch {
-            settingsRepository.setHiddenProviders(serverId, updated)
+            settingsRepository.setHiddenProviders(serverId, updatedProviders)
+            settingsRepository.setHiddenModels(serverId, updatedModels)
         }
     }
 
     fun setSearchQuery(query: String) {
-        _searchQuery.value = query
+        _uiState.value = _uiState.value.copy(searchQuery = query)
     }
 }

@@ -1,19 +1,26 @@
 package me.xiaok.opencode.ui.screens.tooldetail
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -166,26 +173,31 @@ fun ToolDetailScreen(
 
             // Title section
             if (state.title.isNotEmpty()) {
-                SectionCard(title = "Title") {
-                    Text(
-                        text = state.title,
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = FontFamily.Monospace,
-                        ),
-                    )
+                SectionCard(title = "Title", copyText = state.title) {
+                    SelectionContainer {
+                        Text(
+                            text = state.title,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontFamily = FontFamily.Monospace,
+                            ),
+                        )
+                    }
                 }
             }
 
             // Input section (raw JSON)
             if (state.input != null) {
-                SectionCard(title = "Input") {
-                    Text(
-                        text = state.input.toString(),
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontFamily = FontFamily.Monospace,
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                val inputText = state.input.toString()
+                SectionCard(title = "Input", copyText = inputText) {
+                    SelectionContainer {
+                        Text(
+                            text = inputText,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 
@@ -195,17 +207,19 @@ fun ToolDetailScreen(
                         state.output.lines().any { it.startsWith("@@") || it.startsWith("+") || it.startsWith("-") }
 
                 if (isDiff) {
-                    SectionCard(title = "Changes") {
+                    SectionCard(title = "Changes", copyText = state.output) {
                         DiffContent(text = state.output)
                     }
                 } else {
-                    SectionCard(title = "Output") {
-                        Text(
-                            text = state.output,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontFamily = FontFamily.Monospace,
-                            ),
-                        )
+                    SectionCard(title = "Output", copyText = state.output) {
+                        SelectionContainer {
+                            Text(
+                                text = state.output,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = FontFamily.Monospace,
+                                ),
+                            )
+                        }
                     }
                 }
             }
@@ -215,14 +229,17 @@ fun ToolDetailScreen(
                 SectionCard(
                     title = "Error",
                     containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                    copyText = state.error,
                 ) {
-                    Text(
-                        text = state.error,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontFamily = FontFamily.Monospace,
-                        ),
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                    )
+                    SelectionContainer {
+                        Text(
+                            text = state.error,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                            ),
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
                 }
             }
         }
@@ -237,21 +254,47 @@ fun ToolDetailScreen(
 private fun SectionCard(
     title: String,
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    copyText: String? = null,
     content: @Composable () -> Unit,
 ) {
+    val context = LocalContext.current
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = containerColor),
         shape = RoundedCornerShape(8.dp),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                if (copyText != null) {
+                    IconButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText(title, copyText))
+                            Toast.makeText(context, "$title copied", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy $title",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
             content()
         }

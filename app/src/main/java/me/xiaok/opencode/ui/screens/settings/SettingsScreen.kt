@@ -72,7 +72,6 @@ fun SettingsRoute(
         onNavigateToErrorLog = onNavigateToErrorLog,
         onSetTheme = { viewModel.setTheme(it) },
         onSetDynamicColor = { viewModel.setDynamicColor(it) },
-        onSetAmoledDark = { viewModel.setAmoledDark(it) },
         onSetReconnectMode = { viewModel.setReconnectMode(it) },
         onSetChatFontSize = { viewModel.setChatFontSize(it) },
         onSetCompactMessages = { viewModel.setCompactMessages(it) },
@@ -88,6 +87,7 @@ fun SettingsRoute(
         onSetNotificationsSilent = { viewModel.setNotificationsSilent(it) },
         onSetKeepScreenOn = { viewModel.setKeepScreenOn(it) },
         onSetTerminalFontSize = { viewModel.setTerminalFontSize(it) },
+        onClearCacheData = { viewModel.clearCacheData() },
     )
 }
 
@@ -104,7 +104,6 @@ fun SettingsScreen(
     onNavigateToErrorLog: () -> Unit = {},
     onSetTheme: (String) -> Unit,
     onSetDynamicColor: (Boolean) -> Unit,
-    onSetAmoledDark: (Boolean) -> Unit,
     onSetReconnectMode: (String) -> Unit,
     onSetChatFontSize: (String) -> Unit,
     onSetCompactMessages: (Boolean) -> Unit,
@@ -120,11 +119,13 @@ fun SettingsScreen(
     onSetNotificationsSilent: (Boolean) -> Unit,
     onSetKeepScreenOn: (Boolean) -> Unit,
     onSetTerminalFontSize: (Int) -> Unit,
+    onClearCacheData: () -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var showThemeDialog by remember { mutableStateOf(false) }
     var showFontSizeDialog by remember { mutableStateOf(false) }
     var showReconnectModeDialog by remember { mutableStateOf(false) }
+    var showClearCacheDialog by remember { mutableStateOf(false) }
 
     if (showThemeDialog) {
         SingleChoiceDialog(
@@ -153,6 +154,38 @@ fun SettingsScreen(
             selected = uiState.reconnectMode,
             onSelect = { onSetReconnectMode(it); showReconnectModeDialog = false },
             onDismiss = { showReconnectModeDialog = false },
+        )
+    }
+
+    if (showClearCacheDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearCacheDialog = false },
+            title = {
+                Text(
+                    text = "Clear Cache",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                )
+            },
+            text = {
+                Text("This will delete all cached sessions and messages from local storage. Data on the server will not be affected.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onClearCacheData()
+                        showClearCacheDialog = false
+                    }
+                ) {
+                    Text("Clear")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearCacheDialog = false }) {
+                    Text("Cancel")
+                }
+            },
         )
     }
 
@@ -235,14 +268,6 @@ fun SettingsScreen(
                     subtitle = "Use Material You colors from wallpaper",
                     checked = uiState.dynamicColor,
                     onCheckedChange = onSetDynamicColor,
-                )
-            }
-            item {
-                SwitchSettingItem(
-                    title = "AMOLED dark",
-                    subtitle = "Pure black background in dark mode",
-                    checked = uiState.amoledDark,
-                    onCheckedChange = onSetAmoledDark,
                 )
             }
             item {
@@ -462,6 +487,13 @@ fun SettingsScreen(
                     title = "Error log",
                     subtitle = "View collected error reports",
                     onClick = onNavigateToErrorLog,
+                )
+            }
+            item {
+                ClickableSettingItem(
+                    title = "Clear cache",
+                    subtitle = "Delete all cached sessions and messages",
+                    onClick = { showClearCacheDialog = true },
                 )
             }
 

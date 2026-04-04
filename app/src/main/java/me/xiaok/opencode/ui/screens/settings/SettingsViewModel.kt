@@ -8,13 +8,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import me.xiaok.opencode.data.repository.CacheRepository
 import me.xiaok.opencode.data.repository.SettingsRepository
 import javax.inject.Inject
 
 data class SettingsUiState(
     val theme: String = "system",
     val dynamicColor: Boolean = true,
-    val amoledDark: Boolean = false,
     val reconnectMode: String = "normal",
     val chatFontSize: String = "medium",
     val compactMessages: Boolean = false,
@@ -35,12 +35,12 @@ data class SettingsUiState(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
+    private val cacheRepository: CacheRepository,
 ) : ViewModel() {
 
     val uiState: StateFlow<SettingsUiState> = combine(
         settingsRepository.theme,
         settingsRepository.dynamicColor,
-        settingsRepository.amoledDark,
         settingsRepository.reconnectMode,
         settingsRepository.chatFontSize,
         settingsRepository.compactMessages,
@@ -60,22 +60,21 @@ class SettingsViewModel @Inject constructor(
         SettingsUiState(
             theme = values[0] as String,
             dynamicColor = values[1] as Boolean,
-            amoledDark = values[2] as Boolean,
-            reconnectMode = values[3] as String,
-            chatFontSize = values[4] as String,
-            compactMessages = values[5] as Boolean,
-            codeWordWrap = values[6] as Boolean,
-            collapseTools = values[7] as Boolean,
-            initialMessages = values[8] as Int,
-            confirmSend = values[9] as Boolean,
-            hapticFeedback = values[10] as Boolean,
-            imageCompress = values[11] as Boolean,
-            notificationsEnabled = values[12] as Boolean,
-            keepScreenOn = values[13] as Boolean,
-            imageMaxSide = values[14] as Int,
-            imageWebPQuality = values[15] as Int,
-            terminalFontSize = values[16] as Int,
-            notificationsSilent = values[17] as Boolean,
+            reconnectMode = values[2] as String,
+            chatFontSize = values[3] as String,
+            compactMessages = values[4] as Boolean,
+            codeWordWrap = values[5] as Boolean,
+            collapseTools = values[6] as Boolean,
+            initialMessages = values[7] as Int,
+            confirmSend = values[8] as Boolean,
+            hapticFeedback = values[9] as Boolean,
+            imageCompress = values[10] as Boolean,
+            notificationsEnabled = values[11] as Boolean,
+            keepScreenOn = values[12] as Boolean,
+            imageMaxSide = values[13] as Int,
+            imageWebPQuality = values[14] as Int,
+            terminalFontSize = values[15] as Int,
+            notificationsSilent = values[16] as Boolean,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
@@ -85,10 +84,6 @@ class SettingsViewModel @Inject constructor(
 
     fun setDynamicColor(value: Boolean) {
         viewModelScope.launch { settingsRepository.setDynamicColor(value) }
-    }
-
-    fun setAmoledDark(value: Boolean) {
-        viewModelScope.launch { settingsRepository.setAmoledDark(value) }
     }
 
     fun setReconnectMode(value: String) {
@@ -149,5 +144,9 @@ class SettingsViewModel @Inject constructor(
 
     fun setNotificationsSilent(value: Boolean) {
         viewModelScope.launch { settingsRepository.setNotificationsSilent(value) }
+    }
+
+    fun clearCacheData() {
+        viewModelScope.launch { cacheRepository.clearAllCacheData() }
     }
 }

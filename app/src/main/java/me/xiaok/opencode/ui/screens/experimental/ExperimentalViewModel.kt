@@ -16,6 +16,7 @@ import me.xiaok.opencode.domain.model.WorkspaceCreateRequest
 import me.xiaok.opencode.domain.model.WorktreeCreateRequest
 import me.xiaok.opencode.domain.model.WorktreeDeleteRequest
 import me.xiaok.opencode.domain.model.WorktreeResetRequest
+import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
 
 // === UI State ===
@@ -43,6 +44,7 @@ class ExperimentalViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val api: OpenCodeApi,
     private val serverRepository: ServerRepository,
+    private val errorCollector: ErrorCollector,
 ) : ViewModel() {
 
     private val serverId: String = savedStateHandle["serverId"]
@@ -77,6 +79,7 @@ class ExperimentalViewModel @Inject constructor(
                 val workspaces = api.listWorkspaces(server)
                 _uiState.update { it.copy(workspaces = workspaces, isLoadingWorkspaces = false) }
             } catch (e: Exception) {
+                errorCollector.logError(e, "Experimental")
                 _uiState.update { it.copy(isLoadingWorkspaces = false, error = e.message) }
             }
         }
@@ -90,6 +93,7 @@ class ExperimentalViewModel @Inject constructor(
                 val worktrees = api.listWorktrees(server)
                 _uiState.update { it.copy(worktrees = worktrees, isLoadingWorktrees = false) }
             } catch (e: Exception) {
+                errorCollector.logError(e, "Experimental")
                 _uiState.update { it.copy(isLoadingWorktrees = false, error = e.message) }
             }
         }
@@ -103,6 +107,7 @@ class ExperimentalViewModel @Inject constructor(
                 val resources = api.getExperimentalResources(server)
                 _uiState.update { it.copy(resources = resources, isLoadingResources = false) }
             } catch (e: Exception) {
+                errorCollector.logError(e, "Experimental")
                 _uiState.update { it.copy(isLoadingResources = false, error = e.message) }
             }
         }
@@ -119,6 +124,7 @@ class ExperimentalViewModel @Inject constructor(
                 _uiState.update { it.copy(isCreating = false) }
                 loadWorkspaces()
             } catch (e: Exception) {
+                errorCollector.logError(e, "Experimental")
                 _uiState.update { it.copy(isCreating = false, error = e.message) }
             }
         }
@@ -131,6 +137,7 @@ class ExperimentalViewModel @Inject constructor(
                 api.deleteWorkspace(server, workspaceId)
                 loadWorkspaces()
             } catch (e: Exception) {
+                errorCollector.logError(e, "Experimental")
                 _uiState.update { it.copy(error = e.message) }
             }
         }
@@ -147,6 +154,7 @@ class ExperimentalViewModel @Inject constructor(
                 _uiState.update { it.copy(isCreating = false) }
                 loadWorktrees()
             } catch (e: Exception) {
+                errorCollector.logError(e, "Experimental")
                 _uiState.update { it.copy(isCreating = false, error = e.message) }
             }
         }
@@ -159,6 +167,7 @@ class ExperimentalViewModel @Inject constructor(
                 api.deleteWorktree(server, WorktreeDeleteRequest(directory = directory))
                 loadWorktrees()
             } catch (e: Exception) {
+                errorCollector.logError(e, "Experimental")
                 _uiState.update { it.copy(error = e.message) }
             }
         }
@@ -171,6 +180,7 @@ class ExperimentalViewModel @Inject constructor(
                 api.resetWorktree(server, WorktreeResetRequest(directory = directory))
                 loadWorktrees()
             } catch (e: Exception) {
+                errorCollector.logError(e, "Experimental")
                 _uiState.update { it.copy(error = e.message) }
             }
         }

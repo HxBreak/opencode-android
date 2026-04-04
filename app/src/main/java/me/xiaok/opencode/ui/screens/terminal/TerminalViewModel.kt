@@ -27,6 +27,7 @@ import me.xiaok.opencode.domain.model.PtyCreateRequest
 import me.xiaok.opencode.domain.model.PtySize
 import me.xiaok.opencode.domain.model.PtyUpdateRequest
 import me.xiaok.opencode.ui.components.terminal.TerminalState
+import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
 
 data class TerminalUiState(
@@ -43,6 +44,7 @@ class TerminalViewModel @Inject constructor(
     private val wsClient: WsClient,
     private val serverRepository: ServerRepository,
     private val eventReducer: EventReducer,
+    private val errorCollector: ErrorCollector,
 ) : ViewModel() {
 
     private val serverId: String = savedStateHandle["serverId"]
@@ -145,6 +147,7 @@ class TerminalViewModel @Inject constructor(
                             state.processData(data)
                         }
                     } catch (e: Exception) {
+                        errorCollector.logError(e, "Terminal")
                         Log.e(TAG, "Terminal output stream error: ${e.message}")
                         _error.value = "Terminal connection failed: ${e.message}"
                         _isConnected.value = false
@@ -155,6 +158,7 @@ class TerminalViewModel @Inject constructor(
 
                 _isConnected.value = true
             } catch (e: Exception) {
+                errorCollector.logError(e, "Terminal")
                 Log.e(TAG, "Failed to start terminal: ${e.message}", e)
                 _error.value = e.message ?: "Failed to start terminal"
                 _terminalState.value = null

@@ -13,6 +13,7 @@ import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.domain.model.McpServerCreateRequest
 import me.xiaok.opencode.domain.model.McpStatus
+import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
 
 data class McpManagementUiState(
@@ -27,6 +28,7 @@ class McpManagementViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val api: OpenCodeApi,
     private val serverRepository: ServerRepository,
+    private val errorCollector: ErrorCollector,
 ) : ViewModel() {
 
     private val serverId: String = savedStateHandle["serverId"]
@@ -47,6 +49,7 @@ class McpManagementViewModel @Inject constructor(
                 val servers = api.listMcpServers(server)
                 _uiState.update { it.copy(mcpServers = servers, isLoading = false) }
             } catch (e: Exception) {
+                errorCollector.logError(e, "McpManagement")
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }
         }
@@ -60,6 +63,7 @@ class McpManagementViewModel @Inject constructor(
                 _uiState.update { it.copy(showAddDialog = false) }
                 loadServers()
             } catch (e: Exception) {
+                errorCollector.logError(e, "McpManagement")
                 _uiState.update { it.copy(error = e.message) }
             }
         }
@@ -72,6 +76,7 @@ class McpManagementViewModel @Inject constructor(
                 api.connectMcpServer(server, name)
                 loadServers()
             } catch (e: Exception) {
+                errorCollector.logError(e, "McpManagement")
                 _uiState.update { it.copy(error = e.message) }
             }
         }
@@ -84,6 +89,7 @@ class McpManagementViewModel @Inject constructor(
                 api.disconnectMcpServer(server, name)
                 loadServers()
             } catch (e: Exception) {
+                errorCollector.logError(e, "McpManagement")
                 _uiState.update { it.copy(error = e.message) }
             }
         }
@@ -96,6 +102,7 @@ class McpManagementViewModel @Inject constructor(
                 api.removeMcpAuth(server, name)
                 loadServers()
             } catch (e: Exception) {
+                errorCollector.logError(e, "McpManagement")
                 _uiState.update { it.copy(error = e.message) }
             }
         }

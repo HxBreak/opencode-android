@@ -13,6 +13,7 @@ import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.domain.model.Session
 import me.xiaok.opencode.domain.model.SessionStatus
+import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
 
 sealed class SessionArchiveFilter(val label: String) {
@@ -43,6 +44,7 @@ class SessionListViewModel @Inject constructor(
     private val eventReducer: EventReducer,
     private val serverRepository: ServerRepository,
     private val settingsRepository: SettingsRepository,
+    private val errorCollector: ErrorCollector,
 ) : ViewModel() {
 
     private val serverId: String = savedStateHandle["serverId"]
@@ -169,6 +171,7 @@ class SessionListViewModel @Inject constructor(
                 val sessions = api.listSessions(server, directory = directory, roots = true)
                 eventReducer.setSessions(serverId, sessions)
             } catch (e: Exception) {
+                errorCollector.logError(e, "SessionList")
                 _error.value = e.message ?: "Failed to load sessions"
             } finally {
                 _isLoading.value = false
@@ -184,6 +187,7 @@ class SessionListViewModel @Inject constructor(
                 eventReducer.processEvent(serverId, me.xiaok.opencode.domain.model.SseEvent.SessionCreated(session))
                 onResult?.invoke(session.id)
             } catch (e: Exception) {
+                errorCollector.logError(e, "SessionList")
                 _error.value = e.message ?: "Failed to create session"
             }
         }
@@ -199,6 +203,7 @@ class SessionListViewModel @Inject constructor(
                     eventReducer.processEvent(serverId, me.xiaok.opencode.domain.model.SseEvent.SessionDeleted(session))
                 }
             } catch (e: Exception) {
+                errorCollector.logError(e, "SessionList")
                 _error.value = e.message ?: "Failed to delete session"
             }
         }
@@ -221,6 +226,7 @@ class SessionListViewModel @Inject constructor(
                 val updated = api.updateSession(server, sessionId, title = title)
                 eventReducer.processEvent(serverId, me.xiaok.opencode.domain.model.SseEvent.SessionUpdated(updated))
             } catch (e: Exception) {
+                errorCollector.logError(e, "SessionList")
                 _error.value = e.message ?: "Failed to update session"
             }
         }
@@ -234,6 +240,7 @@ class SessionListViewModel @Inject constructor(
                 val updated = api.updateSession(server, sessionId, archived = timestamp)
                 eventReducer.processEvent(serverId, me.xiaok.opencode.domain.model.SseEvent.SessionUpdated(updated))
             } catch (e: Exception) {
+                errorCollector.logError(e, "SessionList")
                 _error.value = e.message ?: "Failed to archive session"
             }
         }
@@ -246,6 +253,7 @@ class SessionListViewModel @Inject constructor(
                 val updated = api.updateSession(server, sessionId, unarchive = true)
                 eventReducer.processEvent(serverId, me.xiaok.opencode.domain.model.SseEvent.SessionUpdated(updated))
             } catch (e: Exception) {
+                errorCollector.logError(e, "SessionList")
                 _error.value = e.message ?: "Failed to unarchive session"
             }
         }
