@@ -56,13 +56,6 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug
 
-      - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          retention-days: 7
-
   # ──────────────────────────────────────────────
   # Job 3: Build & Release Signed APK
   # ──────────────────────────────────────────────
