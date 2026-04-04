@@ -7,3 +7,8 @@
 .externalNativeBuild
 .cxx
 .DS_Store
+
+# Signing
+app/keystore.properties
+app/*.keystore
+app/*.jks
