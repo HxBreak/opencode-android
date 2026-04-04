@@ -33,6 +33,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
@@ -402,6 +404,10 @@ private fun ReasoningPart(
 /**
  * "Thinking" label with left-to-right shimmer sweep animation.
  * Only shown when the reasoning part is the latest content in an active (BUSY) session.
+ *
+ * Uses TextStyle.brush to paint a sweeping gradient directly on the text glyphs.
+ * The gradient goes: baseColor → highlightColor → baseColor, so outside the sweep
+ * the text looks normal and inside it lights up with the primary theme color.
  */
 @Composable
 private fun ThinkingShimmerText() {
@@ -417,48 +423,30 @@ private fun ThinkingShimmerText() {
         label = "shimmerOffset",
     )
 
+    val baseColor = MaterialTheme.colorScheme.onSurfaceVariant
     val highlightColor = MaterialTheme.colorScheme.primary
-    val shimmerWidth = textLayoutSize.width * 0.6f
-    val startX = -shimmerWidth + (textLayoutSize.width + shimmerWidth * 2) * shimmerOffset
+    val width = textLayoutSize.width.toFloat()
+    val shimmerWidth = width * 0.6f
+    val startX = -shimmerWidth + (width + shimmerWidth * 2) * shimmerOffset
 
-    Box {
-        // Base text layer
-        Text(
-            text = "Thinking",
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = FontWeight.SemiBold,
-                fontStyle = FontStyle.Italic,
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.onGloballyPositioned { textLayoutSize = it.size },
-        )
-        // Shimmer overlay: gradient is masked to text shape via SrcAtop blend mode
-        Text(
-            text = "Thinking",
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = FontWeight.SemiBold,
-                fontStyle = FontStyle.Italic,
-            ),
-            color = Color.Transparent,
-            modifier = Modifier
-                .onGloballyPositioned { textLayoutSize = it.size }
-                .drawWithContent {
-                    drawContent() // draw transparent text to establish text-shaped alpha
-                    drawRect(
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                highlightColor.copy(alpha = 0.5f),
-                                Color.Transparent,
-                            ),
-                            start = Offset(startX, 0f),
-                            end = Offset(startX + shimmerWidth, 0f),
-                        ),
-                        blendMode = BlendMode.SrcAtop, // gradient only visible on text pixels
-                    )
-                },
-        )
-    }
+    Text(
+        text = "Thinking",
+        style = MaterialTheme.typography.labelMedium.copy(
+            fontWeight = FontWeight.SemiBold,
+            fontStyle = FontStyle.Italic,
+            brush = if (width > 0f) Brush.linearGradient(
+                colors = listOf(
+                    baseColor,
+                    highlightColor,
+                    baseColor,
+                ),
+                start = Offset(startX, 0f),
+                end = Offset(startX + shimmerWidth, 0f),
+            ) else null,
+        ),
+        color = baseColor,
+        modifier = Modifier.onGloballyPositioned { textLayoutSize = it.size },
+    )
 }
 
 // ---------------------------------------------------------------------------

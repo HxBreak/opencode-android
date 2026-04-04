@@ -55,6 +55,7 @@ jobs:
   release:
     name: Build & Release
     runs-on: ubuntu-latest
+    environment: signing
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
