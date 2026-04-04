@@ -14,6 +14,7 @@ import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.domain.model.ServerConnection
 import me.xiaok.opencode.fixtures.TestFixtures
 import me.xiaok.opencode.utils.CoroutineTestRule
+import me.xiaok.opencode.utils.ErrorCollector
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -34,6 +35,7 @@ class ServerModelFilterViewModelTest {
     private val api: OpenCodeApi = mockk(relaxed = true)
     private val serverRepository: ServerRepository = mockk(relaxed = true)
     private val settingsRepository: SettingsRepository = mockk(relaxed = true)
+    private val errorCollector: ErrorCollector = mockk(relaxed = true)
     private val testServer = TestFixtures.testServerConnection()
 
     private val hiddenModelsFlow = MutableStateFlow<Set<String>>(emptySet())
@@ -63,6 +65,7 @@ class ServerModelFilterViewModelTest {
             api,
             serverRepository,
             settingsRepository,
+            errorCollector,
         )
     }
 
@@ -154,7 +157,7 @@ class ServerModelFilterViewModelTest {
     }
 
     @Test
-    fun `toggleProviderVisibility adds provider to hidden set`() = testScope.runTest {
+    fun `toggleProviderVisibility hides provider and all its models`() = testScope.runTest {
         coEvery { api.getProviders(testServer) } returns TestFixtures.testProviderList()
 
         val vm = createVm()
@@ -165,13 +168,16 @@ class ServerModelFilterViewModelTest {
         advanceUntilIdle()
 
         assertTrue(vm.uiState.value.hiddenProviders.contains("anthropic"))
+        assertTrue(vm.uiState.value.hiddenModels.contains("claude-3-sonnet"))
         coVerify { settingsRepository.setHiddenProviders("test_server", setOf("anthropic")) }
+        coVerify { settingsRepository.setHiddenModels("test_server", setOf("claude-3-sonnet")) }
     }
 
     @Test
-    fun `toggleProviderVisibility removes provider from hidden set`() = testScope.runTest {
+    fun `toggleProviderVisibility shows provider and all its models`() = testScope.runTest {
         coEvery { api.getProviders(testServer) } returns TestFixtures.testProviderList()
         hiddenProvidersFlow.value = setOf("anthropic")
+        hiddenModelsFlow.value = setOf("claude-3-sonnet")
 
         val vm = createVm()
         backgroundScope.launch { vm.uiState.collect {} }
@@ -181,7 +187,9 @@ class ServerModelFilterViewModelTest {
         advanceUntilIdle()
 
         assertFalse(vm.uiState.value.hiddenProviders.contains("anthropic"))
+        assertFalse(vm.uiState.value.hiddenModels.contains("claude-3-sonnet"))
         coVerify { settingsRepository.setHiddenProviders("test_server", emptySet()) }
+        coVerify { settingsRepository.setHiddenModels("test_server", emptySet()) }
     }
 
     @Test

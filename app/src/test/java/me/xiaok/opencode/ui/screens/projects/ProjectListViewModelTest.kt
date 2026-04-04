@@ -21,6 +21,7 @@ import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.domain.model.*
 import me.xiaok.opencode.fixtures.TestFixtures
 import me.xiaok.opencode.utils.CoroutineTestRule
+import me.xiaok.opencode.utils.ErrorCollector
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -42,6 +43,7 @@ class ProjectListViewModelTest {
     private val api = mockk<OpenCodeApi>(relaxed = true)
     private val serverRepository = mockk<ServerRepository>(relaxed = true)
     private val cacheRepository = mockk<CacheRepository>(relaxed = true)
+    private val errorCollector = mockk<ErrorCollector>(relaxed = true)
 
     private lateinit var testScope: TestScope
     private lateinit var eventReducer: EventReducer
@@ -83,7 +85,7 @@ class ProjectListViewModelTest {
         coEvery { api.listFiles(testServer, ".") } returns testDirEntries
 
         val savedStateHandle = SavedStateHandle(mapOf("serverId" to serverId))
-        return ProjectListViewModel(savedStateHandle, api, serverRepository, eventReducer)
+        return ProjectListViewModel(savedStateHandle, api, serverRepository, eventReducer, errorCollector)
     }
 
     // === loadProjects ===

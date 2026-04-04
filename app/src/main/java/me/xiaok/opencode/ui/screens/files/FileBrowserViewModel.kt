@@ -11,6 +11,7 @@ import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.domain.model.FileNode
 import me.xiaok.opencode.domain.model.FileStatus
+import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
 
 data class FileBrowserUiState(
@@ -31,6 +32,7 @@ class FileBrowserViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val api: OpenCodeApi,
     private val serverRepository: ServerRepository,
+    private val errorCollector: ErrorCollector,
 ) : ViewModel() {
 
     private val serverId: String = checkNotNull(savedStateHandle["serverId"])
@@ -95,6 +97,7 @@ class FileBrowserViewModel @Inject constructor(
                 _fileContent.value = null
                 _viewingFilePath.value = null
             } catch (e: Exception) {
+                errorCollector.logError(e, "FileBrowser")
                 _error.value = e.message ?: "Failed to load directory"
             } finally {
                 _isLoading.value = false
@@ -112,6 +115,7 @@ class FileBrowserViewModel @Inject constructor(
                 _fileContent.value = content
                 _viewingFilePath.value = path
             } catch (e: Exception) {
+                errorCollector.logError(e, "FileBrowser")
                 _error.value = e.message ?: "Failed to load file"
             } finally {
                 _isLoading.value = false
@@ -142,6 +146,7 @@ class FileBrowserViewModel @Inject constructor(
             try {
                 _searchResults.value = api.textSearch(conn, pattern)
             } catch (e: Exception) {
+                errorCollector.logError(e, "FileBrowser")
                 _error.value = e.message ?: "Search failed"
                 _searchResults.value = emptyList()
             } finally {
@@ -162,6 +167,7 @@ class FileBrowserViewModel @Inject constructor(
             try {
                 _fileNameResults.value = api.fileSearch(conn, query)
             } catch (e: Exception) {
+                errorCollector.logError(e, "FileBrowser")
                 _error.value = e.message ?: "File search failed"
                 _fileNameResults.value = emptyList()
             } finally {

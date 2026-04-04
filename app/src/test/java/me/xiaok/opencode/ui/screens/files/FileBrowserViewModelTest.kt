@@ -12,6 +12,7 @@ import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.domain.model.ServerConnection
 import me.xiaok.opencode.fixtures.TestFixtures
 import me.xiaok.opencode.utils.CoroutineTestRule
+import me.xiaok.opencode.utils.ErrorCollector
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -32,6 +33,7 @@ class FileBrowserViewModelTest {
 
     private val api = mockk<OpenCodeApi>(relaxed = true)
     private val serverRepository = mockk<ServerRepository>(relaxed = true)
+    private val errorCollector = mockk<ErrorCollector>(relaxed = true)
     private val server = TestFixtures.testServerConnection()
 
     @Before
@@ -52,7 +54,7 @@ class FileBrowserViewModelTest {
 
     private fun createViewModel(): FileBrowserViewModel {
         val savedStateHandle = SavedStateHandle(mapOf("serverId" to "test_server"))
-        return FileBrowserViewModel(savedStateHandle, api, serverRepository)
+        return FileBrowserViewModel(savedStateHandle, api, serverRepository, errorCollector)
     }
 
     @Test

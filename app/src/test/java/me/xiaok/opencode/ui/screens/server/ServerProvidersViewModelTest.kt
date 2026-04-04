@@ -11,6 +11,7 @@ import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.fixtures.TestFixtures
 import me.xiaok.opencode.utils.CoroutineTestRule
+import me.xiaok.opencode.utils.ErrorCollector
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -30,6 +31,7 @@ class ServerProvidersViewModelTest {
 
     private val api: OpenCodeApi = mockk(relaxed = true)
     private val serverRepository: ServerRepository = mockk(relaxed = true)
+    private val errorCollector: ErrorCollector = mockk(relaxed = true)
     private val testServer = TestFixtures.testServerConnection()
 
     @Before
@@ -50,6 +52,7 @@ class ServerProvidersViewModelTest {
             SavedStateHandle(mapOf("serverId" to "test_server")),
             api,
             serverRepository,
+            errorCollector,
         )
     }
 
@@ -204,5 +207,36 @@ class ServerProvidersViewModelTest {
         vm.clearError()
 
         assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `setSearchQuery updates searchQuery in state`() = testScope.runTest {
+        coEvery { api.getProviders(testServer) } returns TestFixtures.testProviderList()
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertEquals("", vm.uiState.value.searchQuery)
+
+        vm.setSearchQuery("anthropic")
+        advanceUntilIdle()
+
+        assertEquals("anthropic", vm.uiState.value.searchQuery)
+    }
+
+    @Test
+    fun `setSearchQuery with empty string clears search`() = testScope.runTest {
+        coEvery { api.getProviders(testServer) } returns TestFixtures.testProviderList()
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.setSearchQuery("anthropic")
+        advanceUntilIdle()
+        assertEquals("anthropic", vm.uiState.value.searchQuery)
+
+        vm.setSearchQuery("")
+        advanceUntilIdle()
+        assertEquals("", vm.uiState.value.searchQuery)
     }
 }

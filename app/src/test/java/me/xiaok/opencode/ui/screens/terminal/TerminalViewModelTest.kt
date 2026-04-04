@@ -15,6 +15,7 @@ import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.domain.model.ServerConnection
 import me.xiaok.opencode.fixtures.TestFixtures
 import me.xiaok.opencode.utils.CoroutineTestRule
+import me.xiaok.opencode.utils.ErrorCollector
 import okhttp3.WebSocket
 import org.junit.After
 import org.junit.Assert.*
@@ -38,6 +39,7 @@ class TerminalViewModelTest {
     private val wsClient = mockk<WsClient>(relaxed = true)
     private val serverRepository = mockk<ServerRepository>(relaxed = true)
     private val eventReducer = mockk<EventReducer>(relaxed = true)
+    private val errorCollector = mockk<ErrorCollector>(relaxed = true)
     private val server = TestFixtures.testServerConnection()
 
     @Before
@@ -71,7 +73,7 @@ class TerminalViewModelTest {
         val map = mutableMapOf<String, Any?>("serverId" to "test_server")
         sessionId?.let { map["sessionId"] = it }
         val savedStateHandle = SavedStateHandle(map)
-        return TerminalViewModel(savedStateHandle, api, wsClient, serverRepository, eventReducer)
+        return TerminalViewModel(savedStateHandle, api, wsClient, serverRepository, eventReducer, errorCollector)
     }
 
     @Test

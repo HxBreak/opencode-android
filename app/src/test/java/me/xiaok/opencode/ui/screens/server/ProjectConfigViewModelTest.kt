@@ -14,6 +14,7 @@ import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.fixtures.TestFixtures
 import me.xiaok.opencode.utils.CoroutineTestRule
+import me.xiaok.opencode.utils.ErrorCollector
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -37,6 +38,7 @@ class ProjectConfigViewModelTest {
 
     private lateinit var api: OpenCodeApi
     private lateinit var serverRepository: ServerRepository
+    private val errorCollector = mockk<ErrorCollector>(relaxed = true)
     private val testServer = TestFixtures.testServerConnection(id = "server_1")
     private lateinit var vm: ProjectConfigViewModel
 
@@ -65,6 +67,7 @@ class ProjectConfigViewModelTest {
             SavedStateHandle(mapOf("serverId" to "server_1")),
             api,
             serverRepository,
+            errorCollector,
         )
     }
 

@@ -57,11 +57,6 @@ class SettingsRepositoryTest {
     }
 
     @Test
-    fun `amoledDark defaults to false`() = runTest {
-        assertEquals(false, repository.amoledDark.first())
-    }
-
-    @Test
     fun `reconnectMode defaults to normal`() = runTest {
         assertEquals("normal", repository.reconnectMode.first())
     }
@@ -153,12 +148,6 @@ class SettingsRepositoryTest {
     fun `setDynamicColor persists and reads back`() = runTest {
         repository.setDynamicColor(false)
         assertEquals(false, repository.dynamicColor.first())
-    }
-
-    @Test
-    fun `setAmoledDark persists and reads back`() = runTest {
-        repository.setAmoledDark(true)
-        assertEquals(true, repository.amoledDark.first())
     }
 
     @Test

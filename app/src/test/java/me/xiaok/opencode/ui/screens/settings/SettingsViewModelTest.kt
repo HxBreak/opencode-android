@@ -36,7 +36,6 @@ class SettingsViewModelTest {
 
     private val themeFlow = MutableStateFlow("system")
     private val dynamicColorFlow = MutableStateFlow(true)
-    private val amoledDarkFlow = MutableStateFlow(false)
     private val reconnectModeFlow = MutableStateFlow("normal")
     private val chatFontSizeFlow = MutableStateFlow("medium")
     private val compactMessagesFlow = MutableStateFlow(false)
@@ -65,7 +64,6 @@ class SettingsViewModelTest {
 
         every { settingsRepository.theme } returns themeFlow
         every { settingsRepository.dynamicColor } returns dynamicColorFlow
-        every { settingsRepository.amoledDark } returns amoledDarkFlow
         every { settingsRepository.reconnectMode } returns reconnectModeFlow
         every { settingsRepository.chatFontSize } returns chatFontSizeFlow
         every { settingsRepository.compactMessages } returns compactMessagesFlow
@@ -101,7 +99,6 @@ class SettingsViewModelTest {
         val state = vm.uiState.value
         assertEquals("system", state.theme)
         assertTrue(state.dynamicColor)
-        assertFalse(state.amoledDark)
         assertEquals("normal", state.reconnectMode)
         assertEquals("medium", state.chatFontSize)
         assertFalse(state.compactMessages)
@@ -133,14 +130,6 @@ class SettingsViewModelTest {
         dynamicColorFlow.value = false
         testScope.advanceUntilIdle()
         assertFalse(vm.uiState.value.dynamicColor)
-    }
-
-    @Test
-    fun `uiState reflects amoledDark change`() {
-        collectAndAdvance()
-        amoledDarkFlow.value = true
-        testScope.advanceUntilIdle()
-        assertTrue(vm.uiState.value.amoledDark)
     }
 
     @Test

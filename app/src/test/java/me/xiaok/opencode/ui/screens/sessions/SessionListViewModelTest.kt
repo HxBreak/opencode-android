@@ -17,6 +17,7 @@ import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.domain.model.*
 import me.xiaok.opencode.fixtures.TestFixtures
 import me.xiaok.opencode.utils.CoroutineTestRule
+import me.xiaok.opencode.utils.ErrorCollector
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -39,6 +40,7 @@ class SessionListViewModelTest {
     private val serverRepository = mockk<ServerRepository>(relaxed = true)
     private val settingsRepository = mockk<SettingsRepository>(relaxed = true)
     private val cacheRepository = mockk<CacheRepository>(relaxed = true)
+    private val errorCollector = mockk<ErrorCollector>(relaxed = true)
 
     private lateinit var testScope: TestScope
     private lateinit var eventReducer: EventReducer
@@ -82,7 +84,7 @@ class SessionListViewModelTest {
 
     private fun createViewModel(directory: String? = null): SessionListViewModel {
         val savedStateHandle = SavedStateHandle(mapOf("serverId" to serverId, "directory" to directory))
-        return SessionListViewModel(savedStateHandle, api, eventReducer, serverRepository, settingsRepository)
+        return SessionListViewModel(savedStateHandle, api, eventReducer, serverRepository, settingsRepository, errorCollector)
     }
 
     // === refreshSessions ===

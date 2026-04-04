@@ -11,6 +11,7 @@ import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.fixtures.TestFixtures
 import me.xiaok.opencode.utils.CoroutineTestRule
+import me.xiaok.opencode.utils.ErrorCollector
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -31,6 +32,7 @@ class ExperimentalViewModelTest {
 
     private val api = mockk<OpenCodeApi>(relaxed = true)
     private val serverRepository = mockk<ServerRepository>(relaxed = true)
+    private val errorCollector = mockk<ErrorCollector>(relaxed = true)
     private val server = TestFixtures.testServerConnection()
 
     @Before
@@ -51,7 +53,7 @@ class ExperimentalViewModelTest {
 
     private fun createViewModel(): ExperimentalViewModel {
         val savedStateHandle = SavedStateHandle(mapOf("serverId" to "test_server"))
-        return ExperimentalViewModel(savedStateHandle, api, serverRepository)
+        return ExperimentalViewModel(savedStateHandle, api, serverRepository, errorCollector)
     }
 
     @Test

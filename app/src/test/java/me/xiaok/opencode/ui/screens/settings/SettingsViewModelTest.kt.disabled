@@ -28,7 +28,6 @@ class SettingsViewModelTest {
 
     private val themeFlow = MutableStateFlow("system")
     private val dynamicColorFlow = MutableStateFlow(true)
-    private val amoledDarkFlow = MutableStateFlow(false)
     private val reconnectModeFlow = MutableStateFlow("normal")
     private val chatFontSizeFlow = MutableStateFlow("medium")
     private val compactMessagesFlow = MutableStateFlow(false)
@@ -53,7 +52,6 @@ class SettingsViewModelTest {
         settingsRepository = mockk()
         every { settingsRepository.theme } returns themeFlow
         every { settingsRepository.dynamicColor } returns dynamicColorFlow
-        every { settingsRepository.amoledDark } returns amoledDarkFlow
         every { settingsRepository.reconnectMode } returns reconnectModeFlow
         every { settingsRepository.chatFontSize } returns chatFontSizeFlow
         every { settingsRepository.compactMessages } returns compactMessagesFlow
@@ -72,7 +70,6 @@ class SettingsViewModelTest {
 
         coEvery { settingsRepository.setTheme(any()) } just Awaits
         coEvery { settingsRepository.setDynamicColor(any()) } just Awaits
-        coEvery { settingsRepository.setAmoledDark(any()) } just Awaits
         coEvery { settingsRepository.setReconnectMode(any()) } just Awaits
         coEvery { settingsRepository.setChatFontSize(any()) } just Awaits
         coEvery { settingsRepository.setCompactMessages(any()) } just Awaits
@@ -102,7 +99,6 @@ class SettingsViewModelTest {
 
         assert(state.theme == "system")
         assert(state.dynamicColor == true)
-        assert(state.amoledDark == false)
         assert(state.reconnectMode == "normal")
         assert(state.chatFontSize == "medium")
         assert(state.compactMessages == false)
@@ -132,13 +128,6 @@ class SettingsViewModelTest {
         viewModel.setDynamicColor(false)
         coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
         coVerify(exactly = 1) { settingsRepository.setDynamicColor(false) }
-    }
-
-    @Test
-    fun `setAmoledDark delegates to repository`() = runTest {
-        viewModel.setAmoledDark(true)
-        coroutineTestRule.testDispatcher.scheduler.advanceUntilIdle()
-        coVerify(exactly = 1) { settingsRepository.setAmoledDark(true) }
     }
 
     @Test

@@ -9,6 +9,7 @@ import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.fixtures.TestFixtures
 import me.xiaok.opencode.utils.CoroutineTestRule
+import me.xiaok.opencode.utils.ErrorCollector
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -28,6 +29,7 @@ class McpManagementViewModelTest {
 
     private val api: OpenCodeApi = mockk(relaxed = true)
     private val serverRepository: ServerRepository = mockk(relaxed = true)
+    private val errorCollector: ErrorCollector = mockk(relaxed = true)
     private val testServer = TestFixtures.testServerConnection()
 
     @Before
@@ -48,6 +50,7 @@ class McpManagementViewModelTest {
             SavedStateHandle(mapOf("serverId" to "test_server")),
             api,
             serverRepository,
+            errorCollector,
         )
     }
 
