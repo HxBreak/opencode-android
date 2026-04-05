@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
@@ -40,7 +41,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -110,13 +110,19 @@ fun ProjectListRoute(
         uiState = uiState,
         browserState = browserState,
         showDirectoryBrowser = showDirectoryBrowser,
-        onDirectoryBrowserDismiss = { showDirectoryBrowser = false },
+        onDirectoryBrowserDismiss = {
+            showDirectoryBrowser = false
+            viewModel.resetBrowserState()
+        },
         onBrowseDirectory = { path -> viewModel.browseDirectory(path) },
         onNavigateUp = { viewModel.navigateUp() },
         onSelectDirectory = { viewModel.selectDirectory() },
         onRefresh = { viewModel.loadProjects() },
-        onProjectClick = { project ->
-            onNavigateToSessions(serverId, project.worktree)
+        onProjectClick = { item ->
+            onNavigateToSessions(serverId, item.project.worktree)
+        },
+        onRemoveLocalProject = { directory ->
+            viewModel.removeLocalProject(directory)
         },
         onNavigateBack = onNavigateBack,
         onOpenDirectoryBrowser = {
@@ -142,7 +148,8 @@ fun ProjectListScreen(
     onNavigateUp: () -> Unit,
     onSelectDirectory: () -> Unit,
     onRefresh: () -> Unit,
-    onProjectClick: (Project) -> Unit,
+    onProjectClick: (ProjectListItem) -> Unit,
+    onRemoveLocalProject: (String) -> Unit,
     onNavigateBack: () -> Unit,
     onOpenDirectoryBrowser: () -> Unit,
     onSearchQueryChanged: (String) -> Unit,
@@ -151,6 +158,39 @@ fun ProjectListScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
+    var showRemoveDialog by remember { mutableStateOf<ProjectListItem?>(null) }
+
+    // Remove confirmation dialog
+    showRemoveDialog?.let { item ->
+        AlertDialog(
+            onDismissRequest = { showRemoveDialog = null },
+            title = { Text("Remove local project") },
+            text = {
+                Text(
+                    "Remove \"${item.project.name ?: item.project.worktree}\" from the project list? " +
+                    "This only removes the local reference — the directory itself is not affected."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onRemoveLocalProject(item.project.worktree)
+                        showRemoveDialog = null
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) {
+                    Text("Remove")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveDialog = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -233,15 +273,19 @@ fun ProjectListScreen(
                     ) {
                         items(
                             items = uiState.projects,
-                            key = { it.id },
-                        ) { project ->
+                            key = { it.project.id },
+                        ) { item ->
                             ProjectRow(
-                                project = project,
-                                onClick = { onProjectClick(project) },
+                                item = item,
+                                onClick = { onProjectClick(item) },
                                 onLongClick = {
-                                    clipboardManager.setText(AnnotatedString(project.worktree))
-                                    coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("Path copied to clipboard")
+                                    if (item.isLocal) {
+                                        showRemoveDialog = item
+                                    } else {
+                                        clipboardManager.setText(AnnotatedString(item.project.worktree))
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Path copied to clipboard")
+                                        }
                                     }
                                 },
                                 modifier = Modifier.padding(
@@ -609,11 +653,12 @@ private fun SuggestionEntry(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ProjectRow(
-    project: Project,
+    item: ProjectListItem,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val project = item.project
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -655,27 +700,47 @@ private fun ProjectRow(
                 Surface(
                     modifier = Modifier.size(36.dp),
                     shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
+                    color = if (item.isLocal) {
+                        MaterialTheme.colorScheme.tertiaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.primaryContainer
+                    },
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.Folder,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            tint = if (item.isLocal) {
+                                MaterialTheme.colorScheme.onTertiaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            },
                         )
                     }
                 }
             }
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = project.name ?: project.worktree.split("/").lastOrNull().orEmpty().ifEmpty { project.id },
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        fontWeight = FontWeight.SemiBold,
-                    ),
-                    maxLines = 1,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = project.name ?: project.worktree.split("/").lastOrNull().orEmpty().ifEmpty { project.id },
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (item.isLocal) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(
+                            imageVector = Icons.Default.Bookmark,
+                            contentDescription = "Local",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(

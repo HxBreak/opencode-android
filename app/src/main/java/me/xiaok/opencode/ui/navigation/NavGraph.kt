@@ -16,7 +16,9 @@ import androidx.navigation.toRoute
 import me.xiaok.opencode.ui.components.common.OfflineBanner
 import me.xiaok.opencode.ui.screens.about.AboutRoute
 import me.xiaok.opencode.ui.screens.chat.ChatRoute
+import me.xiaok.opencode.ui.screens.chat.FullScreenEditorRoute
 import me.xiaok.opencode.ui.screens.diff.DiffViewerRoute
+import me.xiaok.opencode.ui.screens.diff.SessionDiffRoute
 import me.xiaok.opencode.ui.screens.errorlog.ErrorLogRoute
 import me.xiaok.opencode.ui.screens.experimental.ExperimentalRoute
 import me.xiaok.opencode.ui.screens.files.FileBrowserRoute
@@ -68,6 +70,9 @@ fun OpenCodeNavGraph(
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings)
                 },
+                onNavigateToRecentSession = { serverId, sessionId ->
+                    navController.navigate(Screen.Chat(serverId, sessionId))
+                },
             )
         }
 
@@ -96,6 +101,15 @@ fun OpenCodeNavGraph(
                     navController.navigate(Screen.Chat(serverId, sessionId))
                 },
                 onNavigateBack = { navController.popBackStack() },
+                onNavigateToTerminal = {
+                    navController.navigate(Screen.Terminal(sessionList.serverId))
+                },
+                onNavigateToTerminalWithPty = { ptyId ->
+                    navController.navigate(Screen.Terminal(sessionList.serverId, ptyId = ptyId))
+                },
+                onNavigateToFiles = { directory ->
+                    navController.navigate(Screen.FileBrowser(sessionList.serverId, directory = directory))
+                },
             )
         }
 
@@ -126,9 +140,6 @@ fun OpenCodeNavGraph(
                 serverId = chat.serverId,
                 sessionId = chat.sessionId,
                 onNavigateBack = { navController.popBackStack() },
-                onNavigateToTerminal = {
-                    navController.navigate(Screen.Terminal(chat.serverId, chat.sessionId))
-                },
                 onNavigateToSession = { subSessionId ->
                     navController.navigate(Screen.Chat(chat.serverId, subSessionId))
                 },
@@ -149,6 +160,12 @@ fun OpenCodeNavGraph(
                 },
                 onNavigateToToolDetail = { partId ->
                     navController.navigate(Screen.ToolDetail(chat.serverId, chat.sessionId, partId))
+                },
+                onNavigateToSessionDiff = {
+                    navController.navigate(Screen.SessionDiff(chat.serverId, chat.sessionId))
+                },
+                onNavigateToFullScreenEditor = {
+                    navController.navigate(Screen.FullScreenEditor)
                 },
             )
         }
@@ -172,6 +189,12 @@ fun OpenCodeNavGraph(
             val terminal: Screen.Terminal = backStackEntry.toRoute()
             TerminalRoute(
                 onNavigateBack = { navController.popBackStack() },
+                onNavigateToPty = { serverId, sessionId, ptyId ->
+                    navController.navigate(Screen.Terminal(serverId, sessionId, ptyId))
+                },
+                onNavigateToNewTerminal = { serverId, sessionId ->
+                    navController.navigate(Screen.Terminal(serverId, sessionId))
+                },
             )
         }
 
@@ -184,6 +207,7 @@ fun OpenCodeNavGraph(
             FileBrowserRoute(
                 serverId = files.serverId,
                 sessionId = files.sessionId,
+                directory = files.directory,
                 onNavigateBack = { navController.popBackStack() },
             )
         }
@@ -282,6 +306,13 @@ fun OpenCodeNavGraph(
             )
         }
 
+        // === Session Diff (standalone page — proactive API fetch) ===
+        composable<Screen.SessionDiff> {
+            SessionDiffRoute(
+                onNavigateBack = { navController.popBackStack() },
+            )
+        }
+
         // === Icon Preview (Debug) ===
         composable<Screen.IconPreview> {
             IconPreviewRoute(
@@ -292,6 +323,16 @@ fun OpenCodeNavGraph(
         // === Error Log ===
         composable<Screen.ErrorLog> {
             ErrorLogRoute(
+                onNavigateBack = { navController.popBackStack() },
+            )
+        }
+
+        // === Full-Screen Editor (slides up from bottom) ===
+        composable<Screen.FullScreenEditor>(
+            enterTransition = { ScreenTransitions.slideUpEnter },
+            popExitTransition = { ScreenTransitions.slideDownExit },
+        ) {
+            FullScreenEditorRoute(
                 onNavigateBack = { navController.popBackStack() },
             )
         }

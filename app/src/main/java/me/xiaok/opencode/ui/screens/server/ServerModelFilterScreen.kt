@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -66,7 +67,9 @@ fun ServerModelFilterRoute(
     ServerModelFilterScreen(
         uiState = uiState,
         onNavigateBack = onNavigateBack,
-        onToggleModelVisibility = viewModel::toggleModelVisibility,
+        onToggleModelVisibility = { providerId, modelId ->
+            viewModel.toggleModelVisibility(providerId, modelId)
+        },
         onToggleProviderVisibility = viewModel::toggleProviderVisibility,
         onSearchQueryChanged = viewModel::setSearchQuery,
     )
@@ -81,7 +84,7 @@ fun ServerModelFilterRoute(
 fun ServerModelFilterScreen(
     uiState: ModelFilterUiState,
     onNavigateBack: () -> Unit,
-    onToggleModelVisibility: (String) -> Unit,
+    onToggleModelVisibility: (providerId: String, modelId: String) -> Unit,
     onToggleProviderVisibility: (String) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
 ) {
@@ -171,7 +174,6 @@ fun ServerModelFilterScreen(
                     ) { provider ->
                         ProviderGroup(
                             provider = provider,
-                            isHidden = provider.id in uiState.hiddenProviders,
                             hiddenModels = uiState.hiddenModels,
                             searchQuery = uiState.searchQuery,
                             onToggleProvider = onToggleProviderVisibility,
@@ -253,11 +255,10 @@ private fun SearchBar(
 @Composable
 private fun ProviderGroup(
     provider: Provider,
-    isHidden: Boolean,
     hiddenModels: Set<String>,
     searchQuery: String,
     onToggleProvider: (String) -> Unit,
-    onToggleModel: (String) -> Unit,
+    onToggleModel: (providerId: String, modelId: String) -> Unit,
 ) {
     val filteredModels = remember(provider.models, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -271,8 +272,14 @@ private fun ProviderGroup(
         }
     }
 
-    val visibleCount = filteredModels.count { it.id !in hiddenModels }
-    val allHidden = filteredModels.isNotEmpty() && filteredModels.all { it.id in hiddenModels }
+    // Derive tri-state from individual model visibility
+    // hiddenModels keys are "providerId/modelId" — check only this provider's models
+    val totalFiltered = filteredModels.size
+    val hiddenCount = filteredModels.count { "${provider.id}/${it.id}" in hiddenModels }
+    val visibleCount = totalFiltered - hiddenCount
+    // allHidden=true (OFF), allVisible=true (ON), else indeterminate
+    val allHidden = totalFiltered > 0 && hiddenCount == totalFiltered
+    val allVisible = totalFiltered > 0 && hiddenCount == 0
 
     var expanded by remember { mutableStateOf(true) }
 
@@ -322,7 +329,7 @@ private fun ProviderGroup(
                 )
             }
 
-            // Provider master toggle
+            // Provider master toggle (tri-state: all visible / all hidden / partial)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -330,14 +337,22 @@ private fun ProviderGroup(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = if (isHidden) "打开所有" else "关闭所有",
+                    text = when {
+                        allHidden -> "打开所有"
+                        allVisible -> "关闭所有"
+                        else -> "$visibleCount / $totalFiltered 可见"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
-                Switch(
-                    checked = !isHidden,
-                    onCheckedChange = { onToggleProvider(provider.id) },
+                TriCheckbox(
+                    state = when {
+                        allVisible -> ToggleableState.On
+                        allHidden -> ToggleableState.Off
+                        else -> ToggleableState.Indeterminate
+                    },
+                    onClick = { onToggleProvider(provider.id) },
                 )
             }
 
@@ -350,8 +365,8 @@ private fun ProviderGroup(
                 filteredModels.forEachIndexed { index, model ->
                     ModelRow(
                         model = model,
-                        isVisible = model.id !in hiddenModels,
-                        onToggle = { onToggleModel(model.id) },
+                        isVisible = "${provider.id}/${model.id}" !in hiddenModels,
+                        onToggle = { onToggleModel(provider.id, model.id) },
                     )
                     if (index < filteredModels.lastIndex) {
                         HorizontalDivider(
@@ -405,4 +420,19 @@ private fun ModelRow(
             onCheckedChange = { onToggle() },
         )
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tri-state Checkbox — ON / OFF / Indeterminate
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun TriCheckbox(
+    state: ToggleableState,
+    onClick: () -> Unit,
+) {
+    androidx.compose.material3.TriStateCheckbox(
+        state = state,
+        onClick = onClick,
+    )
 }

@@ -32,6 +32,7 @@ sealed class Screen {
     data class FileBrowser(
         val serverId: String,
         val sessionId: String? = null,
+        val directory: String? = null,
     ) : Screen()
 
     @Serializable
@@ -71,6 +72,7 @@ sealed class Screen {
     data class Terminal(
         val serverId: String,
         val sessionId: String? = null,
+        val ptyId: String? = null,
     ) : Screen()
 
     @Serializable
@@ -79,6 +81,12 @@ sealed class Screen {
     @Serializable
     data class DiffViewer(
         val title: String? = null,
+    ) : Screen()
+
+    @Serializable
+    data class SessionDiff(
+        val serverId: String,
+        val sessionId: String,
     ) : Screen()
 
     @Serializable
@@ -93,4 +101,7 @@ sealed class Screen {
 
     @Serializable
     data object ErrorLog : Screen()
+
+    @Serializable
+    data object FullScreenEditor : Screen()
 }

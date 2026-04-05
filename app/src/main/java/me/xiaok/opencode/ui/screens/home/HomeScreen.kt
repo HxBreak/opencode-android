@@ -1,7 +1,9 @@
 package me.xiaok.opencode.ui.screens.home
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +23,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
@@ -36,11 +39,14 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,19 +56,28 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.domain.model.ServerConnection
 import me.xiaok.opencode.ui.theme.StatusConnected
 import me.xiaok.opencode.ui.theme.StatusConnecting
 import me.xiaok.opencode.ui.theme.StatusError
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
 // ---------------------------------------------------------------------------
@@ -75,6 +90,7 @@ fun HomeRoute(
     onNavigateToProjects: (serverId: String) -> Unit,
     onNavigateToServerSettings: (serverId: String) -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToRecentSession: (serverId: String, sessionId: String) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -93,6 +109,13 @@ fun HomeRoute(
                 viewModel.connect(serverId)
             }
             onNavigateToProjects(serverId)
+        },
+        onNavigateToRecentSession = { serverId, sessionId ->
+            val state = uiState.connectionStates[serverId]
+            if (state != ServerRepository.ConnectionState.CONNECTED) {
+                viewModel.connect(serverId)
+            }
+            onNavigateToRecentSession(serverId, sessionId)
         },
         onNavigateToServerSettings = onNavigateToServerSettings,
         onNavigateToSettings = onNavigateToSettings,
@@ -113,12 +136,16 @@ fun HomeScreen(
     onConnect: (serverId: String) -> Unit,
     onDisconnect: (serverId: String) -> Unit,
     onNavigateToProjects: (serverId: String) -> Unit,
+    onNavigateToRecentSession: (serverId: String, sessionId: String) -> Unit,
     onNavigateToServerSettings: (serverId: String) -> Unit,
     onNavigateToSettings: () -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingServer by remember { mutableStateOf<ServerConnection?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
 
     if (showAddDialog) {
         AddEditServerDialog(
@@ -141,6 +168,7 @@ fun HomeScreen(
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -201,11 +229,35 @@ fun HomeScreen(
                             showAddDialog = true
                         },
                         onRemove = { onRemoveServer(server.id) },
+                        onLongClick = {
+                            clipboardManager.setText(AnnotatedString(server.baseUrl))
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("URL copied to clipboard")
+                            }
+                        },
                         modifier = Modifier.padding(
                             horizontal = 16.dp,
                             vertical = 6.dp,
                         ),
                     )
+                }
+
+                // --- Recent Sessions Section ---
+                if (uiState.recentSessions.isNotEmpty()) {
+                    item {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                        )
+                    }
+                    item {
+                        RecentSessionsSection(
+                            recentSessions = uiState.recentSessions,
+                            onSessionClick = { serverId, sessionId ->
+                                onNavigateToRecentSession(serverId, sessionId)
+                            },
+                        )
+                    }
                 }
 
                 item {
@@ -271,6 +323,7 @@ private fun EmptyState(
 // Server Card — status dot + name + subtitle, overflow menu for actions
 // ---------------------------------------------------------------------------
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ServerCard(
     server: ServerConnection,
@@ -282,6 +335,7 @@ private fun ServerCard(
     onNavigateToServerSettings: () -> Unit,
     onEdit: () -> Unit,
     onRemove: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val dotColor = when (connectionState) {
@@ -298,7 +352,10 @@ private fun ServerCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onNavigateToProjects),
+            .combinedClickable(
+                onClick = onNavigateToProjects,
+                onLongClick = onLongClick,
+            ),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
@@ -618,4 +675,143 @@ fun AddEditServerDialog(
             }
         },
     )
+}
+
+// ---------------------------------------------------------------------------
+// Recent Sessions Section
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun RecentSessionsSection(
+    recentSessions: List<RecentSessionItem>,
+    onSessionClick: (serverId: String, sessionId: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        // Section header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.History,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "Recent Sessions",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        // Session cards
+        recentSessions.forEach { item ->
+            RecentSessionCard(
+                item = item,
+                onClick = { onSessionClick(item.serverId, item.session.id) },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp),
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Recent Session Card — compact card with server + session info
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun RecentSessionCard(
+    item: RecentSessionItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val dotColor = if (item.isConnected) StatusConnected
+    else MaterialTheme.colorScheme.outlineVariant
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 0.dp,
+        ),
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Connection status dot
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(dotColor, CircleShape),
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+
+            // Session info
+            Column(modifier = Modifier.weight(1f)) {
+                // Title row: session title + server badge
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = item.session.title.ifBlank { "Untitled session" },
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = FontWeight.Medium,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = item.serverName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        maxLines = 1,
+                    )
+                }
+
+                // Subtitle: directory path + timestamp
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val dir = item.session.directory
+                    if (dir.isNotBlank()) {
+                        val displayPath = dir.substringAfterLast('/')
+                        Text(
+                            text = displayPath,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    if (item.session.updatedAt > 0L) {
+                        Text(
+                            text = formatTimestamp(item.session.updatedAt),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatTimestamp(epochMillis: Long): String {
+    if (epochMillis <= 0L) return ""
+    val sdf = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
+    return sdf.format(Date(epochMillis))
 }

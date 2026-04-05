@@ -8,29 +8,41 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import me.xiaok.opencode.data.local.db.entity.SessionEntity
+import me.xiaok.opencode.data.repository.CacheRepository
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.di.ServiceModule
 import me.xiaok.opencode.domain.model.ServerConnection
 import javax.inject.Inject
+
+data class RecentSessionItem(
+    val session: SessionEntity,
+    val serverName: String,
+    val serverId: String,
+    val isConnected: Boolean,
+)
 
 data class HomeUiState(
     val servers: List<ServerConnection> = emptyList(),
     val connectionStates: Map<String, ServerRepository.ConnectionState> = emptyMap(),
     val serverVersions: Map<String, String> = emptyMap(),
     val isConnecting: String? = null,  // serverId currently connecting
+    val recentSessions: List<RecentSessionItem> = emptyList(),
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val serverRepository: ServerRepository,
+    private val cacheRepository: CacheRepository,
 ) : ViewModel() {
 
     val uiState: StateFlow<HomeUiState> = combine(
         serverRepository.servers,
         serverRepository.connectionStates,
         serverRepository.serverVersions,
-    ) { servers, connectionStates, serverVersions ->
+        cacheRepository.getRecentSessions(limit = 7),
+    ) { servers, connectionStates, serverVersions, recentEntities ->
         HomeUiState(
             servers = servers,
             connectionStates = connectionStates,
@@ -38,6 +50,15 @@ class HomeViewModel @Inject constructor(
             isConnecting = connectionStates.entries
                 .firstOrNull { it.value == ServerRepository.ConnectionState.CONNECTING }
                 ?.key,
+            recentSessions = recentEntities.mapNotNull { entity ->
+                val server = servers.find { it.id == entity.serverId } ?: return@mapNotNull null
+                RecentSessionItem(
+                    session = entity,
+                    serverName = server.name,
+                    serverId = entity.serverId,
+                    isConnected = connectionStates[entity.serverId] == ServerRepository.ConnectionState.CONNECTED,
+                )
+            },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
 

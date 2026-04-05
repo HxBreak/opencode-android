@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -91,6 +93,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.xiaok.opencode.domain.model.Session
 import me.xiaok.opencode.domain.model.SessionStatus
+import me.xiaok.opencode.ui.screens.terminal.PtyListDialog
 import me.xiaok.opencode.ui.theme.StatusConnected
 import me.xiaok.opencode.ui.theme.StatusError
 import java.text.SimpleDateFormat
@@ -107,6 +110,9 @@ fun SessionListRoute(
     serverId: String,
     onNavigateToChat: (serverId: String, sessionId: String) -> Unit,
     onNavigateBack: () -> Unit,
+    onNavigateToTerminal: () -> Unit,
+    onNavigateToTerminalWithPty: (ptyId: String) -> Unit,
+    onNavigateToFiles: (directory: String) -> Unit,
     viewModel: SessionListViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -133,6 +139,10 @@ fun SessionListRoute(
         onNavigateBack = onNavigateBack,
         onSearchQueryChanged = { viewModel.onSearchQueryChanged(it) },
         onClearSearch = { viewModel.clearSearch() },
+        onNavigateToTerminal = onNavigateToTerminal,
+        onNavigateToTerminalWithPty = onNavigateToTerminalWithPty,
+        onNavigateToFiles = { onNavigateToFiles(it) },
+        onPtyDelete = { viewModel.deletePty(it) },
     )
 }
 
@@ -164,12 +174,17 @@ fun SessionListScreen(
     onNavigateBack: () -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
+    onNavigateToTerminal: () -> Unit = {},
+    onNavigateToTerminalWithPty: (ptyId: String) -> Unit = {},
+    onNavigateToFiles: (directory: String) -> Unit = {},
+    onPtyDelete: (ptyId: String) -> Unit = {},
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var renamingSession by remember { mutableStateOf<Session?>(null) }
     var childrenParentSession by remember { mutableStateOf<Session?>(null) }
     var isSearchMode by remember { mutableStateOf(false) }
     var searchInput by remember { mutableStateOf("") }
+    var showPtyList by remember { mutableStateOf(false) }
 
     renamingSession?.let { session ->
         RenameSessionDialog(
@@ -179,6 +194,24 @@ fun SessionListScreen(
                 renamingSession = null
             },
             onDismiss = { renamingSession = null },
+        )
+    }
+
+    if (showPtyList) {
+        val runningPtys = uiState.ptyList.filter { it.status != "exited" }
+        PtyListDialog(
+            ptys = runningPtys,
+            currentPtyId = null,
+            onPtyClick = { pty ->
+                showPtyList = false
+                onNavigateToTerminalWithPty(pty.id)
+            },
+            onPtyDelete = { ptyId -> onPtyDelete(ptyId) },
+            onCreateNew = {
+                showPtyList = false
+                onNavigateToTerminal()
+            },
+            onDismiss = { showPtyList = false },
         )
     }
 
@@ -331,16 +364,41 @@ fun SessionListScreen(
                                 val hasActiveSession = directorySessionStatuses.any {
                                     it == SessionStatus.BUSY || it == SessionStatus.RETRY
                                 }
+                                val directoryTokens = sessions.sumOf { uiState.sessionTokens[it.id] ?: 0L }
                                 DirectoryHeader(
                                     directory = directory,
                                     isCollapsed = isCollapsed,
                                     sessionCount = sessions.size,
                                     branch = uiState.vcsBranch,
                                     hasActiveSession = hasActiveSession,
+                                    totalTokens = directoryTokens,
                                     onToggle = { onToggleDirectoryCollapsed(directory) },
                                 )
                             }
                             if (!isCollapsed) {
+                                item(key = "quick_$directory") {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        QuickAccessCard(
+                                            icon = Icons.Default.Terminal,
+                                            label = "Terminal",
+                                            badgeCount = uiState.activePtyCount,
+                                            modifier = Modifier.weight(1f),
+                                            onClick = onNavigateToTerminal,
+                                            onLongClick = { showPtyList = true },
+                                        )
+                                        QuickAccessCard(
+                                            icon = Icons.Default.Folder,
+                                            label = "Files",
+                                            modifier = Modifier.weight(1f),
+                                            onClick = { onNavigateToFiles(directory) },
+                                        )
+                                    }
+                                }
                                 items(
                                     items = sessions,
                                     key = { it.id },
@@ -550,6 +608,7 @@ private fun DirectoryHeader(
     sessionCount: Int,
     branch: String?,
     hasActiveSession: Boolean,
+    totalTokens: Long,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -607,6 +666,21 @@ private fun DirectoryHeader(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
+            }
+            // Token count
+            if (totalTokens > 0) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ) {
+                    Text(
+                        text = formatTokenCount(totalTokens),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.width(6.dp))
             }
             // Count badge
             Surface(
@@ -813,9 +887,9 @@ private fun SessionRow(
                                             },
                                             style = MaterialTheme.typography.bodySmall,
                                         )
-                                    }
-                                }
-                            }
+        }
+    }
+}
                         }
 
                         // Overflow menu icon
@@ -1192,4 +1266,75 @@ private fun formatTimestamp(epochMillis: Long): String {
     if (epochMillis <= 0L) return ""
     val sdf = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
     return sdf.format(Date(epochMillis))
+}
+
+// ---------------------------------------------------------------------------
+// Quick Access Card (Terminal / Files)
+// ---------------------------------------------------------------------------
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun QuickAccessCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    badgeCount: Int = 0,
+    onLongClick: (() -> Unit)? = null,
+) {
+    Surface(
+        modifier = modifier.combinedClickable(
+            onClick = onClick,
+            onLongClick = onLongClick,
+        ),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                if (badgeCount > 0) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 6.dp, y = (-4).dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.error,
+                    ) {
+                        Text(
+                            text = if (badgeCount > 99) "99+" else "$badgeCount",
+                            color = MaterialTheme.colorScheme.onError,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = FontWeight.Medium,
+                ),
+            )
+        }
+    }
+}
+
+private fun formatTokenCount(tokens: Long): String {
+    return when {
+        tokens >= 1_000_000 -> "${(tokens / 100_000).toInt() / 10.0}M"
+        tokens >= 1_000 -> "${(tokens / 100).toInt() / 10.0}k"
+        else -> "$tokens"
+    }
 }

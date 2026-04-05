@@ -9,19 +9,29 @@ import kotlinx.coroutines.launch
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.EventReducer
 import me.xiaok.opencode.data.repository.ServerRepository
+import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.domain.model.FileNode
 import me.xiaok.opencode.domain.model.PathInfo
 import me.xiaok.opencode.domain.model.Project
+import me.xiaok.opencode.domain.model.ProjectTime
 import me.xiaok.opencode.domain.model.ServerConnection
 import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
 
 data class ProjectListUiState(
     val serverName: String = "",
-    val projects: List<Project> = emptyList(),
+    val projects: List<ProjectListItem> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
     val isConnected: Boolean = true,
+)
+
+/**
+ * A project item in the list, with metadata about its origin.
+ */
+data class ProjectListItem(
+    val project: Project,
+    val isLocal: Boolean = false,
 )
 
 data class DirectoryBrowserState(
@@ -51,6 +61,7 @@ class ProjectListViewModel @Inject constructor(
     private val serverRepository: ServerRepository,
     private val eventReducer: EventReducer,
     private val errorCollector: ErrorCollector,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
     private val serverId: String = savedStateHandle["serverId"]
@@ -58,7 +69,8 @@ class ProjectListViewModel @Inject constructor(
 
     private val _isLoading = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
-    private val _projects = MutableStateFlow<List<Project>>(emptyList())
+    private val _serverProjects = MutableStateFlow<List<Project>>(emptyList())
+    private val _localDirectories = MutableStateFlow<List<String>>(emptyList())
 
     private val _browserState = MutableStateFlow(DirectoryBrowserState())
 
@@ -75,16 +87,48 @@ class ProjectListViewModel @Inject constructor(
 
     private val _isConnected = MutableStateFlow(false)
 
+    /** Merged project list: server projects first, then local-only projects. */
     val uiState: StateFlow<ProjectListUiState> = combine(
-        _projects,
+        _serverProjects,
+        _localDirectories,
         _isLoading,
         _error,
         _serverName,
         _isConnected,
-    ) { projects, loading, error, serverName, connected ->
+    ) { args ->
+        @Suppress("UNCHECKED_CAST")
+        val serverProjects = args[0] as List<Project>
+        val localDirs = args[1] as List<String>
+        val loading = args[2] as Boolean
+        val error = args[3] as String?
+        val serverName = args[4] as String
+        val connected = args[5] as Boolean
+
+        val serverWorktrees = serverProjects.map { it.worktree }.toSet()
+
+        // Server projects (not local)
+        val serverItems = serverProjects.map { project ->
+            ProjectListItem(project = project, isLocal = false)
+        }
+
+        // Local-only projects (directories not in server list)
+        val localItems = localDirs
+            .filter { it !in serverWorktrees }
+            .map { directory ->
+                ProjectListItem(
+                    project = Project(
+                        id = "local:$directory",
+                        worktree = directory,
+                        name = directory.split("/").lastOrNull().orEmpty().ifEmpty { directory },
+                        time = ProjectTime(),
+                    ),
+                    isLocal = true,
+                )
+            }
+
         ProjectListUiState(
             serverName = serverName,
-            projects = projects,
+            projects = serverItems + localItems,
             isLoading = loading,
             error = error,
             isConnected = connected,
@@ -96,6 +140,7 @@ class ProjectListViewModel @Inject constructor(
     init {
         loadServerName()
         observeConnectionState()
+        observeLocalProjects()
         loadProjects()
 
         // Debounced autocomplete pipeline
@@ -122,6 +167,14 @@ class ProjectListViewModel @Inject constructor(
         }
     }
 
+    private fun observeLocalProjects() {
+        viewModelScope.launch {
+            settingsRepository.getLocalProjects(serverId).collect { directories ->
+                _localDirectories.value = directories
+            }
+        }
+    }
+
     // ---------------------------------------------------------------------------
     // Project list
     // ---------------------------------------------------------------------------
@@ -137,13 +190,23 @@ class ProjectListViewModel @Inject constructor(
                     return@launch
                 }
                 val projects = api.listProjects(server)
-                _projects.value = projects
+                _serverProjects.value = projects
             } catch (e: Exception) {
                 errorCollector.logError(e, "ProjectList")
                 _error.value = e.message ?: "Failed to load projects"
             } finally {
                 _isLoading.value = false
             }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Local project management
+    // ---------------------------------------------------------------------------
+
+    fun removeLocalProject(directory: String) {
+        viewModelScope.launch {
+            settingsRepository.removeLocalProject(serverId, directory)
         }
     }
 
@@ -197,8 +260,15 @@ class ProjectListViewModel @Inject constructor(
     fun selectDirectory() {
         viewModelScope.launch {
             val absolute = _browserState.value.currentAbsolutePath
+            // Save to local projects before emitting
+            settingsRepository.addLocalProject(serverId, absolute)
             _selectedDirectory.emit(absolute)
         }
+    }
+
+    /** Reset browser state so the dialog starts fresh on next open. */
+    fun resetBrowserState() {
+        _browserState.value = DirectoryBrowserState()
     }
 
     /** Fetch PathInfo once (home directory, worktree, etc.). */

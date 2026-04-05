@@ -84,10 +84,16 @@ class ServerModelFilterViewModel @Inject constructor(
         }
     }
 
-    fun toggleModelVisibility(modelId: String) {
+    /**
+     * Toggle visibility of a single model within a specific provider.
+     * Keys are stored as "providerId/modelId" so models with the same ID
+     * under different providers are tracked independently.
+     */
+    fun toggleModelVisibility(providerId: String, modelId: String) {
+        val compositeKey = "$providerId/$modelId"
         val state = _uiState.updateAndGet { current ->
             val updated = current.hiddenModels.toMutableSet().apply {
-                if (contains(modelId)) remove(modelId) else add(modelId)
+                if (contains(compositeKey)) remove(compositeKey) else add(compositeKey)
             }
             current.copy(hiddenModels = updated)
         }
@@ -96,35 +102,30 @@ class ServerModelFilterViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Toggle all models under a provider.
+     * - If all models are hidden → show all (remove composite keys from hiddenModels)
+     * - If all visible or partially visible → hide all (add composite keys to hiddenModels)
+     * Pure batch helper — does NOT touch hiddenProviders.
+     */
     fun toggleProviderVisibility(providerId: String) {
         val currentState = _uiState.value
-        val isCurrentlyHidden = providerId in currentState.hiddenProviders
+        val provider = currentState.providers.find { it.id == providerId } ?: return
 
-        val updatedProviders = currentState.hiddenProviders.toMutableSet().apply {
-            if (isCurrentlyHidden) remove(providerId) else add(providerId)
-        }
+        val compositeKeys = provider.models.keys.map { modelId -> "$providerId/$modelId" }.toSet()
+        val allHidden = compositeKeys.isNotEmpty() && compositeKeys.all { it in currentState.hiddenModels }
 
-        val provider = currentState.providers.find { it.id == providerId }
-        val updatedModels = if (provider != null) {
-            currentState.hiddenModels.toMutableSet().apply {
-                if (isCurrentlyHidden) {
-                    removeAll(provider.models.keys)
-                } else {
-                    addAll(provider.models.keys)
-                }
+        val updatedModels = currentState.hiddenModels.toMutableSet().apply {
+            if (allHidden) {
+                removeAll(compositeKeys) // Show all
+            } else {
+                addAll(compositeKeys) // Hide all
             }
-        } else {
-            currentState.hiddenModels
         }
 
-        // Single atomic update — no intermediate state
-        _uiState.value = currentState.copy(
-            hiddenProviders = updatedProviders,
-            hiddenModels = updatedModels,
-        )
+        _uiState.value = currentState.copy(hiddenModels = updatedModels)
 
         viewModelScope.launch {
-            settingsRepository.setHiddenProviders(serverId, updatedProviders)
             settingsRepository.setHiddenModels(serverId, updatedModels)
         }
     }
