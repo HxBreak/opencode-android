@@ -17,6 +17,7 @@ import me.xiaok.opencode.data.repository.EventReducer
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.domain.model.*
+import me.xiaok.opencode.domain.model.MentionItem
 import me.xiaok.opencode.utils.ErrorCollector
 import me.xiaok.opencode.utils.ImageCompressor
 import javax.inject.Inject
@@ -49,11 +50,13 @@ data class ChatUiState(
     val conversationTurns: Int = 0,
     val draftImageUris: List<String> = emptyList(),
     val attachedImages: List<ChatViewModel.AttachedImage> = emptyList(),
+    val mentions: List<MentionItem> = emptyList(),
     val autoScrollEnabled: Boolean = true,
     val childSessionIds: Map<String, String> = emptyMap(), // subtaskPartId -> childSessionId
     val chatFontSize: String = "medium", // "small", "medium", "large"
     val submittingQuestionIds: Set<String> = emptySet(),
     val sessionWebUrl: String = "",
+    val activePtyCount: Int = 0,
 )
 
 // === ViewModel ===
@@ -102,6 +105,12 @@ class ChatViewModel @Inject constructor(
      */
     private var _draftCleared = false
 
+    /** Raw providers from API (connected only, before hidden-model filtering). */
+    private val _rawProviders = MutableStateFlow<List<Provider>>(emptyList())
+    /** Hidden model/provider sets from local settings (reactive via DataStore). */
+    private val _hiddenModels = MutableStateFlow<Set<String>>(emptySet())
+    private val _hiddenProviders = MutableStateFlow<Set<String>>(emptySet())
+    /** Filtered providers exposed to UI (raw − hidden). */
     private val _providers = MutableStateFlow<List<Provider>>(emptyList())
     private val _agents = MutableStateFlow<List<AgentConfig>>(emptyList())
     private val _commands = MutableStateFlow<List<CommandInfo>>(emptyList())
@@ -110,6 +119,7 @@ class ChatViewModel @Inject constructor(
     private val _selectedVariant = MutableStateFlow<String?>(null)
     private val _draftImageUris = MutableStateFlow<List<String>>(emptyList())
     private val _attachedImages = MutableStateFlow<List<AttachedImage>>(emptyList())
+    private val _mentions = MutableStateFlow<List<MentionItem>>(emptyList())
     private val _autoScrollEnabled = MutableStateFlow(true)
     private val _chatFontSize = settingsRepository.chatFontSize.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), "medium"
@@ -211,7 +221,7 @@ class ChatViewModel @Inject constructor(
                 SelectorState(selector, selVariant)
             }.flatMapLatest { selector ->
                 _attachedImages.flatMapLatest { images ->
-                    combine(draftRepository.getDraft(sessionId), sessionStats, childSessionIdsFlow) { draft, stats, subSessionIds ->
+                    combine(draftRepository.getDraft(sessionId), sessionStats, childSessionIdsFlow, eventReducer.ptySessions) { draft, stats, subSessionIds, allPtys ->
                         // Restore agent/model/variant from draft if available
                         if (draft != null) {
                             if (_selectedAgent.value == null && draft.selectedAgent != null) {
@@ -252,11 +262,13 @@ class ChatViewModel @Inject constructor(
                             conversationTurns = stats.conversationTurns,
                             draftImageUris = if (_draftCleared) emptyList() else (draft?.imageUris ?: emptyList()),
                             attachedImages = images,
+                            mentions = _mentions.value,
                             autoScrollEnabled = _autoScrollEnabled.value,
                             childSessionIds = subSessionIds,
                             chatFontSize = _chatFontSize.value,
                             submittingQuestionIds = _submittingQuestionIds.value,
                             sessionWebUrl = buildSessionWebUrl(partial.session),
+                            activePtyCount = allPtys[serverId]?.count { (_, pty) -> pty.status != "exited" } ?: 0,
                         )
                     }
                 }
@@ -318,6 +330,7 @@ class ChatViewModel @Inject constructor(
         }
         loadMessages()
         loadProviders()
+        observeHiddenFilter()
         loadAgents()
         loadCommands()
         loadConfiguredModel()
@@ -356,8 +369,9 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
                 val limit = settingsRepository.initialMessages.first()
-                Log.d(TAG, "loadMessages: requesting limit=$limit from API")
-                val page = api.listMessages(server, sessionId, limit = limit)
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                Log.d(TAG, "loadMessages: requesting limit=$limit from API, directory=$directory")
+                val page = api.listMessages(server, sessionId, limit = limit, directory = directory)
                 val messages = page.messages
                 Log.d(TAG, "loadMessages: API returned ${messages.size} messages, nextCursor=${page.nextCursor}")
 
@@ -400,7 +414,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
-                val children = api.getSessionChildren(server, sessionId)
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                val children = api.getSessionChildren(server, sessionId, directory = directory)
                 if (children.isNotEmpty()) {
                     children.forEach { child ->
                         eventReducer.processEvent(
@@ -461,10 +476,12 @@ class ChatViewModel @Inject constructor(
                 }
 
                 val limit = settingsRepository.initialMessages.first()
+                val directory = eventReducer.sessions.value[sessionId]?.directory
                 val page = api.listMessages(
                     server, sessionId,
                     limit = limit,
                     before = cursor,
+                    directory = directory,
                 )
                 val olderMessages = page.messages
 
@@ -542,16 +559,75 @@ class ChatViewModel @Inject constructor(
                 if (text.trimStart().startsWith("!")) {
                     val command = text.trimStart().removePrefix("!").trim()
                     if (command.isNotBlank()) {
-                        api.runShell(server, sessionId, command)
+                        val directory = eventReducer.sessions.value[sessionId]?.directory
+                        api.runShell(server, sessionId, command, directory = directory)
                     }
                     _attachedImages.value = emptyList()
                     return@launch
                 }
 
-                // Build parts list: text part + image parts
-                val parts = mutableListOf<Map<String, String>>()
+                // Build parts list: text parts + file mention parts + agent mention parts + image parts
+                val parts = mutableListOf<Map<String, Any>>()
+                val mentions = _mentions.value.sortedBy { it.start }
+                val directory = eventReducer.sessions.value[sessionId]?.directory
 
-                if (text.isNotBlank()) {
+                if (mentions.isNotEmpty()) {
+                    // Split text around mention positions to produce alternating text/mention parts
+                    var cursor = 0
+                    for (mention in mentions) {
+                        // Text before this mention
+                        val beforeText = text.substring(cursor, mention.start.coerceIn(cursor, text.length)).trim()
+                        if (beforeText.isNotBlank()) {
+                            parts.add(mapOf("type" to "text", "text" to beforeText))
+                        }
+
+                        when (mention) {
+                            is MentionItem.FileMention -> {
+                                // Build file:// URL with absolute path
+                                val absolutePath = if (mention.path.startsWith("/")) {
+                                    mention.path
+                                } else {
+                                    val dir = directory?.trimEnd('/') ?: ""
+                                    "$dir/${mention.path}"
+                                }
+                                parts.add(mapOf(
+                                    "type" to "file",
+                                    "url" to "file://$absolutePath",
+                                    "mime" to "text/plain",
+                                    "filename" to mention.path.substringAfterLast('/'),
+                                    "source" to mapOf(
+                                        "type" to "file",
+                                        "text" to mapOf(
+                                            "value" to mention.displayText,
+                                            "start" to mention.start,
+                                            "end" to mention.end,
+                                        ),
+                                        "path" to absolutePath,
+                                    ),
+                                ))
+                            }
+                            is MentionItem.AgentMention -> {
+                                parts.add(mapOf(
+                                    "type" to "agent",
+                                    "name" to mention.name,
+                                    "source" to mapOf(
+                                        "value" to mention.displayText,
+                                        "start" to mention.start,
+                                        "end" to mention.end,
+                                    ),
+                                ))
+                            }
+                        }
+
+                        cursor = mention.end.coerceAtMost(text.length)
+                    }
+
+                    // Text after last mention
+                    val afterText = text.substring(cursor).trim()
+                    if (afterText.isNotBlank()) {
+                        parts.add(mapOf("type" to "text", "text" to afterText))
+                    }
+                } else if (text.isNotBlank()) {
                     parts.add(mapOf("type" to "text", "text" to text.trim()))
                 }
 
@@ -581,8 +657,9 @@ class ChatViewModel @Inject constructor(
                     throw inner
                 }
 
-                // Clear attached images after successful send
+                // Clear attached images and mentions after successful send
                 _attachedImages.value = emptyList()
+                _mentions.value = emptyList()
 
                 // Reload messages to ensure user message (with parts) is displayed.
                 // SSE may push message.updated with empty parts for user messages,
@@ -590,7 +667,8 @@ class ChatViewModel @Inject constructor(
                 try {
                     val server = serverRepository.getServer(serverId)
                     if (server != null) {
-                        val page = api.listMessages(server, sessionId, limit = settingsRepository.initialMessages.first())
+                        val directory = eventReducer.sessions.value[sessionId]?.directory
+                        val page = api.listMessages(server, sessionId, limit = settingsRepository.initialMessages.first(), directory = directory)
                         eventReducer.setMessages(sessionId, page.messages)
                         page.messages.forEach { message ->
                             if (eventReducer.parts.value[message.id] == null) {
@@ -627,10 +705,62 @@ class ChatViewModel @Inject constructor(
                 val server = serverRepository.getServer(serverId) ?: return@launch
                 val providerList = api.getProviders(server)
                 val connected = providerList.connected.toSet()
-                _providers.value = providerList.all.filter { it.id in connected }
+                _rawProviders.value = providerList.all.filter { it.id in connected }
                 _providerDefaults.value = providerList.default
+                applyHiddenFilter()
                 tryApplyModelDefaults()
             } catch (_: Exception) { /* silent fail, providers are optional */ }
+        }
+    }
+
+    /**
+     * Apply hidden-model/provider filters from local settings.
+     * Removes hidden providers entirely, and strips hidden models from remaining providers.
+     * If the currently selected model becomes hidden, it is deselected.
+     */
+    private fun applyHiddenFilter() {
+        val hiddenProv = _hiddenProviders.value
+        val hiddenMod = _hiddenModels.value
+        val raw = _rawProviders.value
+
+        _providers.value = raw
+            .filter { it.id !in hiddenProv }
+            .map { provider ->
+                val filteredModels = provider.models.filterKeys { modelId ->
+                    "${provider.id}/$modelId" !in hiddenMod
+                }
+                if (filteredModels.size == provider.models.size) provider else {
+                    provider.copy(models = filteredModels)
+                }
+            }
+            .filter { it.models.isNotEmpty() } // Drop providers with no visible models
+
+        // Deselect if the selected model is now hidden
+        val sel = _selectedModel.value
+        if (sel != null && !isValidModelRef(sel)) {
+            _selectedModel.value = null
+            _selectedVariant.value = null
+            _modelDefaultsApplied = false
+            tryApplyModelDefaults()
+        }
+    }
+
+    /**
+     * Reactively observe hidden-model/provider settings from DataStore.
+     * When the user changes visibility in ServerModelFilterScreen, this updates immediately.
+     */
+    private fun observeHiddenFilter() {
+        viewModelScope.launch {
+            settingsRepository.getHiddenModels(serverId).collect { hidden ->
+                _hiddenModels.value = hidden
+                applyHiddenFilter()
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.getHiddenProviders(serverId).collect { hidden ->
+                _hiddenProviders.value = hidden
+                applyHiddenFilter()
+            }
         }
     }
 
@@ -802,7 +932,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
-                api.abortSession(server, sessionId)
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                api.abortSession(server, sessionId, directory = directory)
             } catch (e: Exception) {
                 errorCollector.logError(e, "Chat")
                 _error.value = e.message ?: "Failed to abort"
@@ -957,13 +1088,80 @@ class ChatViewModel @Inject constructor(
         _attachedImages.value = emptyList()
     }
 
+    // === Mention Management ===
+
+    /**
+     * Add a mention item (file or agent) from the @ popup.
+     * @param mention The mention to add
+     * @param start Start index of the mention text in the input field
+     * @param end End index of the mention text in the input field
+     */
+    fun addMention(mention: MentionItem, start: Int, end: Int) {
+        val positioned = when (mention) {
+            is MentionItem.FileMention -> mention.copy(start = start, end = end)
+            is MentionItem.AgentMention -> mention.copy(start = start, end = end)
+        }
+        _mentions.value = _mentions.value + positioned
+    }
+
+    /**
+     * Remove a mention by its display text.
+     * Called when the user backspaces over a mention.
+     */
+    fun removeMention(displayText: String) {
+        _mentions.value = _mentions.value.filter { it.displayText != displayText }
+    }
+
+    /**
+     * Clear all mentions. Called after sending a message.
+     */
+    fun clearMentions() {
+        _mentions.value = emptyList()
+    }
+
+    /**
+     * Reconcile mentions against current text — removes any mentions whose
+     * displayText no longer appears in the text (user edited/deleted them),
+     * and updates start/end positions for surviving mentions.
+     */
+    fun reconcileMentions(text: String) {
+        val updated = mutableListOf<MentionItem>()
+        for (mention in _mentions.value) {
+            val index = text.indexOf(mention.displayText)
+            if (index >= 0) {
+                // Found the displayText — update positions
+                val newMention = when (mention) {
+                    is MentionItem.FileMention -> mention.copy(
+                        start = index,
+                        end = index + mention.displayText.length,
+                    )
+                    is MentionItem.AgentMention -> mention.copy(
+                        start = index,
+                        end = index + mention.displayText.length,
+                    )
+                }
+                updated.add(newMention)
+            }
+            // If displayText not found, mention is dropped (not added to updated)
+        }
+        _mentions.value = updated
+    }
+
+    /**
+     * Get the set of mention display texts for VisualTransformation.
+     */
+    fun getMentionDisplayTexts(): Set<String> {
+        return _mentions.value.map { it.displayText }.toSet()
+    }
+
     /**
      * Search files by query for @ mention popup.
      */
     suspend fun searchFiles(query: String): List<String> {
         return try {
             val server = serverRepository.getServer(serverId) ?: return emptyList()
-            api.fileSearch(server, query, limit = 20)
+            val directory = eventReducer.sessions.value[sessionId]?.directory
+            api.fileSearch(server, query, limit = 20, directory = directory)
         } catch (_: Exception) {
             emptyList()
         }
@@ -973,7 +1171,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
-                api.deleteMessage(server, sessionId, messageId)
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                api.deleteMessage(server, sessionId, messageId, directory = directory)
                 // Optimistically remove from local state
                 eventReducer.processEvent(serverId, SseEvent.MessageRemoved(sessionId, messageId))
             } catch (e: Exception) {
@@ -994,7 +1193,9 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
-                val diffs = api.getSessionDiff(server, sessionId)
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                val workspace = eventReducer.sessions.value[sessionId]?.workspaceID
+                val diffs = api.getSessionDiff(server, sessionId, directory = directory, workspace = workspace)
                 eventReducer.processEvent(serverId, SseEvent.SessionDiff(sessionId, diffs))
             } catch (_: Exception) { }
         }
@@ -1025,7 +1226,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
-                val share = api.shareSession(server, sessionId)
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                val share = api.shareSession(server, sessionId, directory = directory)
                 onResult(share.url)
             } catch (e: Exception) {
                 errorCollector.logError(e, "Chat")
@@ -1038,9 +1240,10 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
-                api.unshareSession(server, sessionId)
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                api.unshareSession(server, sessionId, directory = directory)
                 // Refresh session to clear share field
-                val updated = api.getSession(server, sessionId)
+                val updated = api.getSession(server, sessionId, directory = directory)
                 eventReducer.processEvent(
                     serverId,
                     me.xiaok.opencode.domain.model.SseEvent.SessionUpdated(updated)
@@ -1056,7 +1259,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
-                api.revertSession(server, sessionId, messageId)
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                api.revertSession(server, sessionId, messageId, directory = directory)
             } catch (e: Exception) {
                 errorCollector.logError(e, "Chat")
                 _error.value = e.message ?: "Failed to revert session"
@@ -1069,11 +1273,13 @@ class ChatViewModel @Inject constructor(
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
                 val model = _selectedModel.value
+                val directory = eventReducer.sessions.value[sessionId]?.directory
                 api.summarizeSession(
                     conn = server,
                     sessionId = sessionId,
                     providerId = model?.providerID?.ifBlank { null },
                     modelId = model?.modelID?.ifBlank { null },
+                    directory = directory,
                 )
             } catch (e: Exception) {
                 errorCollector.logError(e, "Chat")
@@ -1086,7 +1292,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
-                api.unrevertSession(server, sessionId)
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                api.unrevertSession(server, sessionId, directory = directory)
             } catch (e: Exception) {
                 errorCollector.logError(e, "Chat")
                 _error.value = e.message ?: "Failed to unrevert session"
@@ -1098,7 +1305,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
-                api.updateSession(server, sessionId, title = newTitle)
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                api.updateSession(server, sessionId, title = newTitle, directory = directory)
             } catch (e: Exception) {
                 errorCollector.logError(e, "Chat")
                 _error.value = e.message ?: "Failed to rename session"
@@ -1106,19 +1314,18 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun deleteSession(onDeleted: () -> Unit = {}) {
+    fun deleteSession() {
         viewModelScope.launch {
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
-                val deleted = api.deleteSession(server, sessionId)
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                val deleted = api.deleteSession(server, sessionId, directory = directory)
                 if (deleted) {
                     val session = eventReducer.sessions.value[sessionId] ?: return@launch
                     eventReducer.processEvent(serverId, SseEvent.SessionDeleted(session))
-                    onDeleted()
                 }
             } catch (e: Exception) {
                 errorCollector.logError(e, "Chat")
-                _error.value = e.message ?: "Failed to delete session"
             }
         }
     }
@@ -1383,12 +1590,13 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val session = eventReducer.sessions.value[sessionId] ?: return@launch
             val messages = eventReducer.messages.value[sessionId] ?: emptyList()
+            val directory = session.directory
 
             // Abort if session is running
             if (eventReducer.sessionStatuses.value[sessionId] != SessionStatus.IDLE) {
                 try {
                     val server = serverRepository.getServer(serverId) ?: return@launch
-                    api.abortSession(server, sessionId)
+                    api.abortSession(server, sessionId, directory = directory)
                 } catch (_: Exception) {}
             }
 
@@ -1397,7 +1605,7 @@ class ChatViewModel @Inject constructor(
 
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
-                api.revertSession(server, sessionId, lastUserMessage.id)
+                api.revertSession(server, sessionId, lastUserMessage.id, directory = directory)
             } catch (e: Exception) {
                 errorCollector.logError(e, "Chat")
                 _error.value = e.message ?: "Failed to undo"
@@ -1414,6 +1622,7 @@ class ChatViewModel @Inject constructor(
             val session = eventReducer.sessions.value[sessionId] ?: return@launch
             val revertInfo = session.revert ?: return@launch
             val messages = eventReducer.messages.value[sessionId] ?: emptyList()
+            val directory = session.directory
 
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
@@ -1424,9 +1633,9 @@ class ChatViewModel @Inject constructor(
                 val nextUserMsg = afterRevert.firstOrNull { it.isUser }
 
                 if (nextUserMsg != null) {
-                    api.revertSession(server, sessionId, nextUserMsg.id)
+                    api.revertSession(server, sessionId, nextUserMsg.id, directory = directory)
                 } else {
-                    api.unrevertSession(server, sessionId)
+                    api.unrevertSession(server, sessionId, directory = directory)
                 }
             } catch (e: Exception) {
                 errorCollector.logError(e, "Chat")
@@ -1453,7 +1662,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
-                api.updateSession(server, sessionId, archived = System.currentTimeMillis())
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                api.updateSession(server, sessionId, archived = System.currentTimeMillis(), directory = directory)
                 // Session list will be updated via SSE
             } catch (e: Exception) {
                 errorCollector.logError(e, "Chat")

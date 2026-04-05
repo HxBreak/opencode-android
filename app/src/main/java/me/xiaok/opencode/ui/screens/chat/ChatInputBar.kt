@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Expand
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -59,15 +60,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import coil3.compose.AsyncImage
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
 import me.xiaok.opencode.domain.model.AgentConfig
 import me.xiaok.opencode.domain.model.BuiltInCommand
 import me.xiaok.opencode.domain.model.BuiltInCommands
 import me.xiaok.opencode.domain.model.CommandInfo
+import me.xiaok.opencode.domain.model.MentionItem
 import me.xiaok.opencode.domain.model.ModelRef
 import me.xiaok.opencode.domain.model.Provider
 import me.xiaok.opencode.domain.model.SessionStatus
@@ -103,42 +104,64 @@ fun ChatInputBar(
     commands: List<CommandInfo> = emptyList(),
     onBuiltInCommand: (BuiltInCommand) -> Unit = {},
     onSearchFiles: suspend (String) -> List<String> = { emptyList() },
+    onMentionSelect: (MentionItem, Int, Int) -> Unit = { _, _, _ -> },
+    mentionDisplayTexts: Set<String> = emptySet(),
+    onExpand: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val isBusy = sessionStatus != SessionStatus.IDLE || isSending
     val canSend = (text.isNotBlank() || attachedImages.isNotEmpty()) && !isBusy
 
-    // Detect @ and / triggers from text input (synchronous derivation)
+    // Detect @ and / triggers from text input using cursor-relative regex
+    // Track cursor position — approximate as text.length for OutlinedTextField (no exposed cursor)
+    // For true cursor tracking, the TextField would need to use TextFieldValue
+    val cursorPosition = text.length
+    val atDetection = detectAtMention(text, cursorPosition)
     val trimmed = text.trimStart()
-    val isAtMode = trimmed.startsWith("@")
-    val isCommandMode = !isAtMode && trimmed.startsWith("/") && trimmed.count { it == '/' } == 1 && !trimmed.contains(" ")
+    val isCommandMode = atDetection == null && trimmed.startsWith("/") && trimmed.count { it == '/' } == 1 && !trimmed.contains(" ")
 
-    // File popup state
-    var showFilePopup by remember { mutableStateOf(false) }
-    var fileQuery by remember { mutableStateOf("") }
+    // @ mention popup state
+    var showMentionPopup by remember { mutableStateOf(false) }
+    var mentionQuery by remember { mutableStateOf("") }
+    var mentionStartIndex by remember { mutableStateOf(-1) }
     var fileResults by remember { mutableStateOf<List<String>>(emptyList()) }
 
-    // Sync popup visibility from text
-    LaunchedEffect(isAtMode, isCommandMode) {
-        when {
-            isAtMode -> {
-                showFilePopup = true
-                fileQuery = trimmed.removePrefix("@").trim()
-            }
-            isCommandMode -> showFilePopup = false
-            else -> showFilePopup = false
+    // Sync popup visibility from @ detection
+    LaunchedEffect(atDetection) {
+        if (atDetection != null) {
+            showMentionPopup = true
+            mentionQuery = atDetection.query
+            mentionStartIndex = atDetection.startIndex
+        } else {
+            showMentionPopup = false
         }
     }
 
-    // Fetch file results when @ popup is active
-    LaunchedEffect(fileQuery, showFilePopup) {
-        if (showFilePopup) {
-            fileResults = onSearchFiles(fileQuery)
+    // Dismiss mention popup if command mode activates
+    LaunchedEffect(isCommandMode) {
+        if (isCommandMode) showMentionPopup = false
+    }
+
+    // Fetch file results + filter agents when @ popup is active
+    val filteredAgents = if (atDetection != null) {
+        val q = atDetection.query
+        if (q.isBlank()) {
+            agents.filter { !it.hidden && it.mode != "subagent" }
+        } else {
+            agents.filter { !it.hidden && it.mode != "subagent" && it.name.contains(q, ignoreCase = true) }
+        }
+    } else emptyList()
+
+    LaunchedEffect(mentionQuery, showMentionPopup) {
+        if (showMentionPopup) {
+            fileResults = onSearchFiles(mentionQuery)
+        } else {
+            fileResults = emptyList()
         }
     }
 
     // Filter commands synchronously from text — no intermediate state
-    val commandQuery = if (isCommandMode) trimmed.removePrefix("/").trim() else ""
+    val commandQuery = if (isCommandMode) text.trimStart().removePrefix("/").trim() else ""
     val filteredBuiltin = if (!isCommandMode) emptyList()
         else BuiltInCommands.filter(commandQuery)
     val filteredServerCommands = if (!isCommandMode) emptyList()
@@ -153,7 +176,7 @@ fun ChatInputBar(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shadowElevation = 8.dp,
     ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
             // 1. Status row
             StatusRow(
                 status = sessionStatus,
@@ -298,33 +321,94 @@ fun ChatInputBar(
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
+            // 3.6 @ Mention popup (agents + files) — above input row
+            AnimatedVisibility(
+                visible = showMentionPopup && mentionStartIndex >= 0 && (filteredAgents.isNotEmpty() || fileResults.isNotEmpty()),
+                enter = expandVertically(),
+                exit = shrinkVertically(),
+            ) {
+                MentionPopupContent(
+                    agents = filteredAgents,
+                    files = fileResults,
+                    query = mentionQuery,
+                    onSelect = { mentionItem ->
+                        val atIndex = mentionStartIndex
+                        val queryEnd = atIndex + 1 + mentionQuery.length
+                        val before = text.substring(0, atIndex)
+                        val insertText = mentionItem.displayText + " "
+                        val after = if (queryEnd < text.length) text.substring(queryEnd) else ""
+                        val newText = before + insertText + after
+                        val newEnd = atIndex + insertText.length
+
+                        val positioned = when (mentionItem) {
+                            is MentionItem.FileMention -> mentionItem.copy(
+                                start = atIndex,
+                                end = newEnd - 1,
+                            )
+                            is MentionItem.AgentMention -> mentionItem.copy(
+                                start = atIndex,
+                                end = newEnd - 1,
+                            )
+                        }
+                        onTextChange(newText)
+                        onMentionSelect(positioned, atIndex, newEnd - 1)
+                        showMentionPopup = false
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 400.dp),
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+
             // 4. Input row
+            val isMultiline = text.contains('\n')
             Row(
                 verticalAlignment = Alignment.Bottom,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                // Attach image button
-                IconButton(
-                    onClick = onAttachImage,
+                // Left button column: expand (when multiline) + attach
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.padding(bottom = 4.dp),
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Attach image",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (isMultiline) {
+                        IconButton(
+                            onClick = onExpand,
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Expand,
+                                contentDescription = "Full screen edit",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                    IconButton(onClick = onAttachImage) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Attach image",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
 
                 OutlinedTextField(
                     value = text,
                     onValueChange = onTextChange,
                     modifier = Modifier.weight(1f),
+                    visualTransformation = if (mentionDisplayTexts.isNotEmpty()) {
+                        MentionTransformation(mentionDisplayTexts)
+                    } else {
+                        VisualTransformation.None
+                    },
                     placeholder = {
                         Text(
                             text = when {
-                                isBusy -> "Waiting for response..."
+                                isBusy -> "Waiting..."
                                 text.startsWith("!") -> "Shell command..."
-                                else -> "Type @ for files, / for commands..."
+                                else -> "Message..."
                             },
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         )
@@ -367,58 +451,6 @@ fun ChatInputBar(
                             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                         },
                     )
-                }
-            }
-        }
-    }
-
-    // @ File mention popup
-    if (showFilePopup && fileResults.isNotEmpty()) {
-        Popup(
-            alignment = Alignment.BottomStart,
-            offset = IntOffset(12, -8),
-            properties = PopupProperties(focusable = false),
-            onDismissRequest = { showFilePopup = false },
-        ) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shadowElevation = 12.dp,
-                modifier = Modifier
-                    .widthIn(max = 320.dp)
-                    .heightIn(max = 200.dp),
-            ) {
-                LazyColumn(
-                    modifier = Modifier.padding(vertical = 4.dp),
-                ) {
-                    items(fileResults.size) { index ->
-                        val filePath = fileResults[index]
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    val insertText = if (text.trimStart().startsWith("@")) {
-                                        text.replaceFirst(Regex("^\\s*@"), "") + filePath
-                                    } else {
-                                        filePath
-                                    }
-                                    onTextChange(insertText)
-                                    showFilePopup = false
-                                }
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = filePath,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = FontFamily.Monospace,
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                    }
                 }
             }
         }
@@ -934,5 +966,38 @@ private fun PulsingDot(
             .size(6.dp)
             .clip(CircleShape)
             .background(color.copy(alpha = pulseAlpha)),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// @ Mention detection — matches cursor-relative @ pattern anywhere in text
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of detecting an @ mention trigger in the text.
+ * @param startIndex The index of the '@' character in the text
+ * @param query The search query after the '@' (may be empty)
+ */
+data class AtDetection(
+    val startIndex: Int,
+    val query: String,
+)
+
+/**
+ * Detects an @ mention trigger at the start of the text.
+ * Only matches when the text starts with '@' (optionally preceded by whitespace-trimmed input).
+ * Returns null if '@' is not the first character or if a space follows the '@query'.
+ */
+fun detectAtMention(text: String, cursorPosition: Int): AtDetection? {
+    if (cursorPosition <= 0 || cursorPosition > text.length) return null
+    val trimmed = text.trimStart()
+    if (!trimmed.startsWith("@")) return null
+    // Compute the offset caused by trimStart
+    val trimOffset = text.length - trimmed.length
+    val textBeforeCursor = text.substring(0, cursorPosition)
+    val match = Regex("""@(\S*)$""").find(textBeforeCursor) ?: return null
+    return AtDetection(
+        startIndex = match.range.first,
+        query = match.groupValues[1],
     )
 }

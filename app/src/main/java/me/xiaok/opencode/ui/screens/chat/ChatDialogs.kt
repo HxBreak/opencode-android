@@ -466,12 +466,18 @@ fun ModelPickerDialog(
     onDismiss: () -> Unit,
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    // Filter at model level: match model.id or model.name (case-insensitive).
+    // Provider is kept if it has any matching models, and only matching models are shown.
     val filteredProviders = remember(searchQuery, providers) {
         if (searchQuery.isBlank()) {
             providers
         } else {
-            providers.filter { provider ->
-                provider.name.contains(searchQuery, ignoreCase = true)
+            val q = searchQuery.lowercase()
+            providers.mapNotNull { provider ->
+                val matchingModels = provider.models.filter { (modelId, model) ->
+                    modelId.lowercase().contains(q) || model.name.lowercase().contains(q)
+                }
+                if (matchingModels.isEmpty()) null else provider.copy(models = matchingModels)
             }
         }
     }

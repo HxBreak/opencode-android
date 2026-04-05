@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,9 +34,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
@@ -86,13 +87,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import kotlinx.coroutines.launch
 import me.xiaok.opencode.domain.model.BuiltInCommand
-import me.xiaok.opencode.domain.model.FileDiff
 import me.xiaok.opencode.domain.model.Message
+import me.xiaok.opencode.domain.model.MentionItem
 import me.xiaok.opencode.domain.model.ModelRef
 import me.xiaok.opencode.domain.model.Part
 import me.xiaok.opencode.domain.model.QuestionRequest
@@ -107,7 +109,6 @@ fun ChatRoute(
     serverId: String,
     sessionId: String,
     onNavigateBack: () -> Unit,
-    onNavigateToTerminal: () -> Unit = {},
     onNavigateToForkedSession: ((String) -> Unit)? = null,
     onNavigateToSession: (String) -> Unit = {},
     onNavigateToNewSession: () -> Unit = {},
@@ -116,6 +117,8 @@ fun ChatRoute(
     onNavigateToSettings: () -> Unit = {},
     onNavigateToMcp: () -> Unit = {},
     onNavigateToToolDetail: (String) -> Unit = {},
+    onNavigateToSessionDiff: () -> Unit = {},
+    onNavigateToFullScreenEditor: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -146,7 +149,6 @@ fun ChatRoute(
             when (cmd.id) {
                 "new" -> onNavigateToNewSession()
                 "sessions" -> onNavigateToSessionList()
-                "terminal" -> onNavigateToTerminal()
                 "files" -> onNavigateToFiles()
                 "settings" -> onNavigateToSettings()
                 "mcp" -> onNavigateToMcp()
@@ -164,6 +166,7 @@ fun ChatRoute(
         onReplyQuestion = { question, answers -> viewModel.replyQuestion(question, answers) },
         onRejectQuestion = { question -> viewModel.rejectQuestion(question) },
         onSaveDraft = { viewModel.saveDraft(it) },
+        onReconcileMentions = { viewModel.reconcileMentions(it) },
         onForkSession = { messageId ->
             viewModel.forkSession(messageId) { forkedId ->
                 onNavigateToForkedSession?.invoke(forkedId)
@@ -180,7 +183,6 @@ fun ChatRoute(
         onUnrevertSession = { viewModel.unrevertSession() },
         onLoadOlderMessages = { viewModel.loadOlderMessages() },
         onNavigateBack = onNavigateBack,
-        onNavigateToTerminal = onNavigateToTerminal,
         onAgentSelected = { viewModel.selectAgent(it) },
         onModelSelected = { viewModel.selectModel(it) },
         onVariantSelected = { viewModel.selectVariant(it) },
@@ -197,7 +199,6 @@ fun ChatRoute(
             Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
         },
         onDeleteMessage = { messageId -> viewModel.deleteMessage(messageId) },
-        onDismissDiffs = { viewModel.dismissDiffs() },
         onExportSession = {
             scope.launch {
                 try {
@@ -219,18 +220,16 @@ fun ChatRoute(
         onAutoScrollToggled = { viewModel.toggleAutoScroll() },
         onNavigateToSession = onNavigateToSession,
         onDeleteSession = {
-            viewModel.deleteSession {
-                onNavigateBack()
-            }
+            onNavigateBack()
+            viewModel.deleteSession()
         },
+        onMentionSelect = { mention, start, end -> viewModel.addMention(mention, start, end) },
         onBuiltInCommand = handleBuiltInCommand,
         onNavigateToToolDetail = onNavigateToToolDetail,
+        onNavigateToSessionDiff = onNavigateToSessionDiff,
+        onNavigateToFullScreenEditor = onNavigateToFullScreenEditor,
     )
 }
-
-// ---------------------------------------------------------------------------
-// Stateless ChatScreen
-// ---------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -242,13 +241,13 @@ fun ChatScreen(
     onReplyQuestion: (QuestionRequest, List<List<String>>) -> Unit,
     onRejectQuestion: (QuestionRequest) -> Unit,
     onSaveDraft: (String) -> Unit,
+    onReconcileMentions: (String) -> Unit = {},
     onForkSession: (String) -> Unit,
     onCopySessionUrl: () -> Unit = {},
     onRevertSession: (String) -> Unit,
     onUnrevertSession: () -> Unit,
     onLoadOlderMessages: () -> Unit,
     onNavigateBack: () -> Unit,
-    onNavigateToTerminal: () -> Unit = {},
     onRenameSession: (String) -> Unit = {},
     onExportSession: () -> Unit = {},
     onAgentSelected: (String?) -> Unit = {},
@@ -257,14 +256,16 @@ fun ChatScreen(
     onAttachImage: () -> Unit = {},
     onRemoveImage: (Int) -> Unit = {},
     onSearchFiles: suspend (String) -> List<String> = { emptyList() },
+    onMentionSelect: (MentionItem, Int, Int) -> Unit = { _, _, _ -> },
     onCopyMessage: (String) -> Unit = {},
     onDeleteMessage: (String) -> Unit = {},
-    onDismissDiffs: () -> Unit = {},
     onAutoScrollToggled: () -> Unit = {},
     onNavigateToSession: (String) -> Unit = {},
     onDeleteSession: () -> Unit = {},
     onBuiltInCommand: (BuiltInCommand) -> Unit = {},
     onNavigateToToolDetail: (String) -> Unit = {},
+    onNavigateToSessionDiff: () -> Unit = {},
+    onNavigateToFullScreenEditor: () -> Unit = {},
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val listState = rememberLazyListState()
@@ -283,13 +284,19 @@ fun ChatScreen(
     var deleteMessageId by remember { mutableStateOf<String?>(null) }
 
     // Delete session confirmation dialog
-    var showDeleteSessionDialog by remember { mutableStateOf(false) }
 
     // Rename dialog
     var showRenameDialog by remember { mutableStateOf(false) }
 
     var previousMessageCount by remember { mutableStateOf(0) }
     var pendingScrollOffset by remember { mutableStateOf(0) }
+
+    // Observe result from FullScreenEditor page
+    val editedText = FullScreenEditorState.consumeResult()
+    if (editedText != null) {
+        inputText = editedText
+        onSaveDraft(editedText)
+    }
 
     // Auto-scroll to bottom only when user is near bottom and new messages arrive
     val messagesSnapshot = uiState.messages
@@ -428,30 +435,6 @@ fun ChatScreen(
         )
     }
 
-    // Delete session confirmation dialog
-    if (showDeleteSessionDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteSessionDialog = false },
-            title = { Text("Delete session") },
-            text = { Text("Are you sure you want to delete this session? All messages and history will be permanently removed. This action cannot be undone.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteSessionDialog = false
-                        onDeleteSession()
-                    },
-                ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteSessionDialog = false }) {
-                    Text("Cancel")
-                }
-            },
-        )
-    }
-
     // Delete confirmation dialog
     deleteMessageId?.let { messageId ->
         AlertDialog(
@@ -498,15 +481,11 @@ fun ChatScreen(
                             ),
                             maxLines = 1,
                         )
-                        if (uiState.sessionStatus != SessionStatus.IDLE) {
+                        if (uiState.totalTokens > 0) {
                             Text(
-                                text = when (uiState.sessionStatus) {
-                                    SessionStatus.BUSY -> "Working..."
-                                    SessionStatus.RETRY -> "Retrying..."
-                                    else -> ""
-                                },
+                                text = formatTokenCount(uiState.totalTokens),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -520,11 +499,11 @@ fun ChatScreen(
                     }
                 },
                 actions = {
-                    // Terminal navigation
-                    IconButton(onClick = onNavigateToTerminal) {
+                    // Session diff navigation
+                    IconButton(onClick = onNavigateToSessionDiff) {
                         Icon(
-                            imageVector = Icons.Default.Code,
-                            contentDescription = "Terminal",
+                            imageVector = Icons.Default.Description,
+                            contentDescription = "Changes",
                         )
                     }
                     if (uiState.sessionStatus != SessionStatus.IDLE) {
@@ -610,7 +589,7 @@ fun ChatScreen(
                                 },
                                 onClick = {
                                     showMenu = false
-                                    showDeleteSessionDialog = true
+                                    onDeleteSession()
                                 },
                             )
                         }
@@ -625,6 +604,7 @@ fun ChatScreen(
                 onTextChange = { newText ->
                     inputText = newText
                     onSaveDraft(newText)
+                    onReconcileMentions(newText)
                 },
                 onSend = {
                     onSendMessage(inputText)
@@ -657,6 +637,12 @@ fun ChatScreen(
                 commands = uiState.commands,
                 onBuiltInCommand = onBuiltInCommand,
                 onSearchFiles = onSearchFiles,
+                onMentionSelect = onMentionSelect,
+                mentionDisplayTexts = uiState.mentions.map { it.displayText }.toSet(),
+                onExpand = {
+                    FullScreenEditorState.prepare(inputText)
+                    onNavigateToFullScreenEditor()
+                },
             )
         },
     ) { innerPadding ->
@@ -665,154 +651,144 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Session diff banner
-                if (uiState.sessionDiffs.isNotEmpty()) {
-                    SessionDiffCard(
-                        diffs = uiState.sessionDiffs,
-                        onDismiss = onDismissDiffs,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    )
-                }
-                if (uiState.messages.isEmpty() && !uiState.isLoading) {
-                    ChatEmptyState()
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        contentPadding = PaddingValues(
-                            horizontal = 12.dp,
-                            vertical = 8.dp,
-                        ),
-                    ) {
-                        // Loading indicator at top when fetching older messages
-                        if (uiState.isLoadingMore) {
-                            item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(8.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp,
-                                    )
-                                }
-                            }
-                        }
-
-                        items(
-                            items = uiState.messages,
-                            key = { it.id },
-                        ) { message ->
-                            val messageParts = uiState.parts[message.id] ?: emptyList()
-                            val isLastMessage = message.id == uiState.messages.lastOrNull()?.id
-                            val isActiveSession = uiState.sessionStatus == SessionStatus.BUSY
-                            val hasReasoningPart = messageParts.any { it is Part.Reasoning }
-                            val hasTextPart = messageParts.any { it is Part.Text }
-                            val isLatestActiveReasoning = isLastMessage && isActiveSession && hasReasoningPart && !hasTextPart
-
-                            var showMenu by remember { mutableStateOf(false) }
-                            Box {
-                                MessageBubble(
-                                    message = message,
-                                    parts = uiState.parts[message.id] ?: emptyList(),
-                                    onMenuClick = { showMenu = true },
-                                    onNavigateToSession = onNavigateToSession,
-                                    childSessionIds = uiState.childSessionIds,
-                                    fontSize = uiState.chatFontSize,
-                                    onQuestionClick = {
-                                        // Question tool card click — question is shown inline at list bottom
-                                        Log.d("ChatScreen", "onQuestionClick: questions=${uiState.questions.size}")
-                                    },
-                                    onNavigateToToolDetail = onNavigateToToolDetail,
-                                    isLatestActiveReasoning = isLatestActiveReasoning,
-                                )
-                                DropdownMenu(
-                                    expanded = showMenu,
-                                    onDismissRequest = { showMenu = false },
-                                ) {
-                                    // Copy message text
-                                    DropdownMenuItem(
-                                        text = { Text("Copy") },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.ContentCopy,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp),
-                                            )
-                                        },
-                                        onClick = {
-                                            showMenu = false
-                                            val text = (uiState.parts[message.id] ?: message.parts)
-                                                .filterIsInstance<Part.Text>()
-                                                .joinToString("\n") { it.text }
-                                            onCopyMessage(text)
-                                        },
-                                    )
-                                    // Delete message
-                                    DropdownMenuItem(
-                                        text = { Text("Delete") },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.Delete,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp),
-                                            )
-                                        },
-                                        onClick = {
-                                            showMenu = false
-                                            deleteMessageId = message.id
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Fork from here") },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Default.CallSplit,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp),
-                                            )
-                                        },
-                                        onClick = {
-                                            showMenu = false
-                                            onForkSession(message.id)
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Revert to here") },
-                                        onClick = {
-                                            showMenu = false
-                                            revertMessageId = message.id
-                                        },
-                                    )
-                                }
-                            }
-                        }
-
-                        // Pending question cards at bottom of message list
-                        items(
-                            items = uiState.questions,
-                            key = { "question_${it.id}" },
-                        ) { question ->
-                            QuestionCard(
-                                question = question,
-                                onSubmit = { answers ->
-                                    onReplyQuestion(question, answers)
-                                },
-                                onReject = {
-                                    onRejectQuestion(question)
-                                },
-                                isSubmitting = question.id in uiState.submittingQuestionIds,
-                            )
-                        }
-
-                        // Spacer for bottom bar
+            if (uiState.messages.isEmpty() && !uiState.isLoading) {
+                ChatEmptyState()
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(
+                        horizontal = 12.dp,
+                        vertical = 8.dp,
+                    ),
+                ) {
+                    // Loading indicator at top when fetching older messages
+                    if (uiState.isLoadingMore) {
                         item {
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            }
                         }
+                    }
+
+                    items(
+                        items = uiState.messages,
+                        key = { it.id },
+                    ) { message ->
+                        val messageParts = uiState.parts[message.id] ?: emptyList()
+                        val isLastMessage = message.id == uiState.messages.lastOrNull()?.id
+                        val isActiveSession = uiState.sessionStatus == SessionStatus.BUSY
+                        val hasReasoningPart = messageParts.any { it is Part.Reasoning }
+                        val hasTextPart = messageParts.any { it is Part.Text }
+                        val isLatestActiveReasoning = isLastMessage && isActiveSession && hasReasoningPart && !hasTextPart
+
+                        var showMenu by remember { mutableStateOf(false) }
+                        Box {
+                            MessageBubble(
+                                message = message,
+                                parts = uiState.parts[message.id] ?: emptyList(),
+                                onMenuClick = { showMenu = true },
+                                onNavigateToSession = onNavigateToSession,
+                                childSessionIds = uiState.childSessionIds,
+                                fontSize = uiState.chatFontSize,
+                                onQuestionClick = {
+                                    // Question tool card click — question is shown inline at list bottom
+                                    Log.d("ChatScreen", "onQuestionClick: questions=${uiState.questions.size}")
+                                },
+                                onNavigateToToolDetail = onNavigateToToolDetail,
+                                isLatestActiveReasoning = isLatestActiveReasoning,
+                            )
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false },
+                            ) {
+                                // Copy message text
+                                DropdownMenuItem(
+                                    text = { Text("Copy") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        val text = (uiState.parts[message.id] ?: message.parts)
+                                            .filterIsInstance<Part.Text>()
+                                            .joinToString("\n") { it.text }
+                                        onCopyMessage(text)
+                                    },
+                                )
+                                // Delete message
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        deleteMessageId = message.id
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Fork from here") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Default.CallSplit,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        onForkSession(message.id)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Revert to here") },
+                                    onClick = {
+                                        showMenu = false
+                                        revertMessageId = message.id
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    // Pending question cards at bottom of message list
+                    items(
+                        items = uiState.questions,
+                        key = { "question_${it.id}" },
+                    ) { question ->
+                        QuestionCard(
+                            question = question,
+                            onSubmit = { answers ->
+                                onReplyQuestion(question, answers)
+                            },
+                            onReject = {
+                                onRejectQuestion(question)
+                            },
+                            isSubmitting = question.id in uiState.submittingQuestionIds,
+                        )
+                    }
+
+                    // Spacer for bottom bar
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
             }
@@ -906,14 +882,73 @@ private fun UserMessageBubble(
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 // Prefer SSE-streamed parts (uiState.parts), fallback to message.parts
-                val textParts = (parts.ifEmpty { message.parts }).filterIsInstance<Part.Text>()
-                textParts.forEach { part ->
-                    if (part.text.isNotEmpty()) {
-                        Text(
-                            text = part.text,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
+                val allParts = parts.ifEmpty { message.parts }
+                allParts.forEach { part ->
+                    when (part) {
+                        is Part.Text -> {
+                            if (part.text.isNotEmpty()) {
+                                Text(
+                                    text = part.text,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                            }
+                        }
+                        is Part.File -> {
+                            // Render file mention as a compact chip in user message
+                            Surface(
+                                color = Color(0xFF2196F3).copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier.padding(vertical = 2.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = "📄",
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = part.name.ifEmpty { part.url.removePrefix("file://") },
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Medium,
+                                        ),
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                }
+                            }
+                        }
+                        is Part.Agent -> {
+                            // Render agent mention as a compact chip in user message
+                            Surface(
+                                color = Color(0xFF9C27B0).copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier.padding(vertical = 2.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = "🤖",
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = part.agent,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Medium,
+                                        ),
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                }
+                            }
+                        }
+                        else -> { /* Skip other part types in user bubble */ }
                     }
                 }
             }
@@ -1003,6 +1038,14 @@ private fun ChatEmptyState() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
         }
+    }
+}
+
+private fun formatTokenCount(tokens: Long): String {
+    return when {
+        tokens >= 1_000_000 -> "${(tokens / 100_000).toInt() / 10.0}M tokens"
+        tokens >= 1_000 -> "${(tokens / 100).toInt() / 10.0}k tokens"
+        else -> "$tokens tokens"
     }
 }
 
@@ -1107,121 +1150,4 @@ private fun SmallFabButton(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Session Diff Card
-// ---------------------------------------------------------------------------
 
-@Composable
-private fun SessionDiffCard(
-    diffs: List<FileDiff>,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val totalAdd = diffs.sumOf { it.additions }
-    val totalDel = diffs.sumOf { it.deletions }
-
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        ),
-        shape = RoundedCornerShape(8.dp),
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "${diffs.size} file${if (diffs.size != 1) "s" else ""} changed",
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                    ),
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    text = buildAnnotatedString {
-                        if (totalAdd > 0) {
-                            withStyle(SpanStyle(color = Color(0xFF4CAF50), fontWeight = FontWeight.Medium)) {
-                                append("+$totalAdd")
-                            }
-                        }
-                        if (totalAdd > 0 && totalDel > 0) append(" ")
-                        if (totalDel > 0) {
-                            withStyle(SpanStyle(color = Color(0xFFE53935), fontWeight = FontWeight.Medium)) {
-                                append("-$totalDel")
-                            }
-                        }
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                )
-                IconButton(
-                    onClick = { expanded = !expanded },
-                    modifier = Modifier.size(24.dp),
-                ) {
-                    Icon(
-                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(24.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Dismiss",
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            }
-
-            AnimatedVisibility(
-                visible = expanded,
-                enter = expandVertically(),
-                exit = shrinkVertically(),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    diffs.forEach { diff ->
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainer,
-                            shape = RoundedCornerShape(4.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = diff.path,
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        fontFamily = FontFamily.Monospace,
-                                    ),
-                                    modifier = Modifier.weight(1f),
-                                )
-                                if (diff.additions > 0) {
-                                    Text(
-                                        text = "+${diff.additions}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF4CAF50),
-                                    )
-                                }
-                                if (diff.deletions > 0) {
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "-${diff.deletions}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFFE53935),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
