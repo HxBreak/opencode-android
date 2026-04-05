@@ -12,3 +12,9 @@
 app/keystore.properties
 app/*.keystore
 app/*.jks
+
+# Kotlin
+.kotlin/
+
+# Sisyphus planner
+.sisyphus/

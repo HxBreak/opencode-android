@@ -606,6 +606,10 @@ class EventReducer @Inject constructor(
         // Merge with existing parts (SSE streaming may have accumulated content already).
         if (message.parts.isNotEmpty()) {
             val messageId = message.info.id
+            // Flush pending deltas before merging — otherwise onMessageUpdated's full-text
+            // snapshot and a subsequent flushPendingDeltas() blind append will produce
+            // duplicated characters during streaming.
+            flushPendingDeltasForMessages(setOf(messageId))
             val existingParts = _parts.value[messageId] ?: emptyList()
             val merged = mergeParts(existingParts, message.parts)
             _parts.value = _parts.value.toMutableMap().apply {
