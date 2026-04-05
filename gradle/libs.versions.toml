@@ -25,6 +25,7 @@ turbine = "1.1.0"
 markdownRenderer = "0.28.0"
 robolectric = "4.14.1"
 kover = "0.9.1"
+javaDiffUtils = "4.15"
 
 [libraries]
 # AndroidX Core
@@ -98,6 +99,9 @@ androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-co
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+
+# Diff
+java-diff-utils = { group = "io.github.java-diff-utils", name = "java-diff-utils", version.ref = "javaDiffUtils" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

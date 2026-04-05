@@ -148,6 +148,9 @@ dependencies {
     implementation(libs.markdown.renderer)
     implementation(libs.markdown.renderer.m3)
 
+    // Diff (java-diff-utils)
+    implementation(libs.java.diff.utils)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
