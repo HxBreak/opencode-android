@@ -55,6 +55,11 @@ class CacheRepository @Inject constructor(
         return sessionDao.getSessionsForServer(serverId)
     }
 
+    /** Cross-server recent sessions for home screen quick access. */
+    fun getRecentSessions(limit: Int = 7): Flow<List<SessionEntity>> {
+        return sessionDao.getRecentSessions(limit)
+    }
+
     suspend fun syncSessions(serverId: String, sessions: List<Session>) = withContext(Dispatchers.IO) {
         val entities = sessions.map { it.toEntity(serverId) }
         sessionDao.upsertAll(entities)
@@ -137,6 +142,7 @@ class CacheRepository @Inject constructor(
         serverId: String,
         api: me.xiaok.opencode.data.api.OpenCodeApi,
         server: ServerConnection,
+        directory: String? = null,
     ): List<Session> {
         // 1. Return cached data immediately
         val cached = getCachedSessionsAsModels(serverId)
@@ -144,7 +150,7 @@ class CacheRepository @Inject constructor(
         // 2. Fire background refresh
         scope.launch {
             try {
-                val fresh = api.listSessions(server, roots = true)
+                val fresh = api.listSessions(server, directory = directory, roots = true)
                 syncSessions(serverId, fresh)
             } catch (e: Exception) {
                 Log.w(TAG, "Background session refresh failed for server $serverId", e)
@@ -171,6 +177,7 @@ class CacheRepository @Inject constructor(
         api: me.xiaok.opencode.data.api.OpenCodeApi,
         server: ServerConnection,
         limit: Int? = null,
+        directory: String? = null,
     ): List<Message> {
         // 1. Return cached data immediately
         val cached = getCachedMessagesAsModels(sessionId)
@@ -178,7 +185,7 @@ class CacheRepository @Inject constructor(
         // 2. Fire background refresh
         scope.launch {
             try {
-                val fresh = api.listMessages(server, sessionId, limit = limit)
+                val fresh = api.listMessages(server, sessionId, limit = limit, directory = directory)
                 syncMessages(serverId, sessionId, fresh.messages)
             } catch (e: Exception) {
                 Log.w(TAG, "Background message refresh failed for session $sessionId", e)

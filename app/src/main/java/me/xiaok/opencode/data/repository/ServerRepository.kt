@@ -103,6 +103,14 @@ class ServerRepository @Inject constructor(
             val sessions = api.listSessions(server, roots = true)
             eventReducer.setSessions(serverId, sessions)
 
+            // 2b. Fetch existing PTY sessions
+            try {
+                val ptys = api.listPtys(server)
+                eventReducer.setPtys(serverId, ptys)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to fetch PTY sessions for ${server.name}", e)
+            }
+
             // 3. Sync to cache
             cacheRepository.syncSessions(serverId, sessions)
 

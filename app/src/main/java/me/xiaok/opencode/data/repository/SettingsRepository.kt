@@ -175,6 +175,30 @@ class SettingsRepository @Inject constructor(
         prefs[RECENT_VARIANTS] = existing.joinToString(",")
     }
 
+    // Local projects per server — stored as "serverId:directoryPath\nserverId:directoryPath\n..."
+    // Each entry is a directory path added by the user through the directory browser.
+    fun getLocalProjects(serverId: String): Flow<List<String>> = dataStore.data.catch { emit(emptyPreferences()) }.map { prefs ->
+        val raw = prefs[LOCAL_PROJECTS] ?: ""
+        raw.split("\n")
+            .filter { it.startsWith("$serverId:") }
+            .map { it.removePrefix("$serverId:") }
+            .filter { it.isNotEmpty() }
+    }
+    suspend fun addLocalProject(serverId: String, directory: String) = dataStore.edit { prefs ->
+        val raw = prefs[LOCAL_PROJECTS] ?: ""
+        val entries = raw.split("\n").filter { it.isNotEmpty() }.toMutableList()
+        val entry = "$serverId:$directory"
+        if (entry !in entries) {
+            entries.add(entry)
+            prefs[LOCAL_PROJECTS] = entries.joinToString("\n")
+        }
+    }
+    suspend fun removeLocalProject(serverId: String, directory: String) = dataStore.edit { prefs ->
+        val raw = prefs[LOCAL_PROJECTS] ?: ""
+        val entries = raw.split("\n").filter { it.isNotEmpty() && it != "$serverId:$directory" }
+        prefs[LOCAL_PROJECTS] = entries.joinToString("\n")
+    }
+
     companion object {
         private val THEME = stringPreferencesKey("theme")
         private val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
@@ -199,5 +223,6 @@ class SettingsRepository @Inject constructor(
         private val IMAGE_WEBP_QUALITY = intPreferencesKey("image_webp_quality")
         private val TERMINAL_FONT_SIZE = intPreferencesKey("terminal_font_size")
         private val NOTIFICATIONS_SILENT = booleanPreferencesKey("notifications_silent")
+        private val LOCAL_PROJECTS = stringPreferencesKey("local_projects")
     }
 }

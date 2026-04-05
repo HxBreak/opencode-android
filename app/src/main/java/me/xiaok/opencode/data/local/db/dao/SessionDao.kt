@@ -26,4 +26,8 @@ interface SessionDao {
 
     @Query("DELETE FROM sessions")
     suspend fun deleteAll()
+
+    /** Cross-server recent root sessions for home screen quick access. */
+    @Query("SELECT * FROM sessions WHERE parentID IS NULL OR parentID = '' ORDER BY updatedAt DESC LIMIT :limit")
+    fun getRecentSessions(limit: Int = 7): Flow<List<SessionEntity>>
 }

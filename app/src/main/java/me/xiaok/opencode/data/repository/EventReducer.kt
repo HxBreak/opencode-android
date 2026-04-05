@@ -783,6 +783,14 @@ class EventReducer @Inject constructor(
         _projectInfo.value = project
     }
 
+    /** Bulk init PTY sessions from REST API */
+    fun setPtys(serverId: String, ptys: List<PtyInfo>) {
+        val ptyMap = ptys.associateBy { it.id }
+        _ptySessions.value = _ptySessions.value.toMutableMap().apply {
+            put(serverId, ptyMap)
+        }
+    }
+
     // === Private Event Handlers: PTY ===
 
     private fun onPtyCreated(serverId: String, info: PtyInfo) {
