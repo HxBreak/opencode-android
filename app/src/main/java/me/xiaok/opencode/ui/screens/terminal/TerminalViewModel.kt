@@ -5,20 +5,16 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.api.WsClient
 import me.xiaok.opencode.data.repository.EventReducer
@@ -26,6 +22,7 @@ import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.domain.model.PtyCreateRequest
 import me.xiaok.opencode.domain.model.PtySize
 import me.xiaok.opencode.domain.model.PtyUpdateRequest
+import me.xiaok.opencode.domain.model.PtyInfo
 import me.xiaok.opencode.ui.components.terminal.TerminalState
 import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
@@ -47,9 +44,14 @@ class TerminalViewModel @Inject constructor(
     private val errorCollector: ErrorCollector,
 ) : ViewModel() {
 
-    private val serverId: String = savedStateHandle["serverId"]
+    val serverId: String = savedStateHandle["serverId"]
         ?: throw IllegalArgumentException("serverId is required")
-    private val sessionId: String? = savedStateHandle["sessionId"]
+    val sessionId: String? = savedStateHandle["sessionId"]
+    private val existingPtyId: String? = savedStateHandle["ptyId"]
+
+    /** Whether this VM created the PTY (and should delete it on exit). */
+    private val ownsPty: Boolean
+        get() = existingPtyId == null
 
     // Terminal state
     private val _terminalState = MutableStateFlow<TerminalState?>(null)
@@ -67,8 +69,6 @@ class TerminalViewModel @Inject constructor(
     /** Last known history cursor from the server control frame. Used to avoid re-downloading history on reconnect. */
     private var _lastCursor: Int = 0
 
-    /** Scope for fire-and-forget cleanup that outlives viewModelScope. Cancelled in onCleared(). */
-    private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Current session's directory for PTY cwd and server routing. */
     private val sessionDirectory: String?
@@ -87,6 +87,11 @@ class TerminalViewModel @Inject constructor(
             ptyId = pty,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TerminalUiState())
+
+    /** List of PTY sessions for the current server, derived from EventReducer. */
+    val ptyList: StateFlow<List<PtyInfo>> = eventReducer.ptySessions
+        .map { sessions -> sessions[serverId]?.values?.toList() ?: emptyList() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
         startTerminal()
@@ -107,17 +112,25 @@ class TerminalViewModel @Inject constructor(
 
                 val cwd = sessionDirectory
 
-                // Create PTY via REST API with session's working directory
-                val ptyInfo = api.createPty(server, PtyCreateRequest(cwd = cwd), directory = cwd)
+                val ptyIdToConnect: String
 
-                // Validate PTY was created successfully
-                if (ptyInfo.id.isBlank()) {
-                    _error.value = "Failed to create terminal session"
-                    _terminalState.value = null
-                    return@launch
+                if (existingPtyId != null) {
+                    // Connect to an existing PTY — no creation needed
+                    ptyIdToConnect = existingPtyId
+                } else {
+                    // Create a new PTY via REST API with session's working directory
+                    val ptyInfo = api.createPty(server, PtyCreateRequest(cwd = cwd), directory = cwd)
+
+                    // Validate PTY was created successfully
+                    if (ptyInfo.id.isBlank()) {
+                        _error.value = "Failed to create terminal session"
+                        _terminalState.value = null
+                        return@launch
+                    }
+                    ptyIdToConnect = ptyInfo.id
                 }
 
-                _ptyId.value = ptyInfo.id
+                _ptyId.value = ptyIdToConnect
 
                 // Create terminal state
                 val state = TerminalState()
@@ -126,7 +139,7 @@ class TerminalViewModel @Inject constructor(
                 // Connect via WebSocket, passing directory for routing headers
                 val connection = wsClient.connectInteractive(
                     conn = server,
-                    ptyId = ptyInfo.id,
+                    ptyId = ptyIdToConnect,
                     cursor = _lastCursor,  // Resume from last known cursor to avoid re-downloading history
                     directory = cwd,
                 )
@@ -168,6 +181,22 @@ class TerminalViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Delete a PTY by ID (called from PTY list dialog).
+     * If the deleted PTY is the current one, disconnect first.
+     */
+    fun deletePty(ptyId: String) {
+        viewModelScope.launch {
+            try {
+                val server = serverRepository.getServer(serverId) ?: return@launch
+                val cwd = sessionDirectory
+                api.deletePty(server, ptyId, directory = cwd)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to delete PTY $ptyId: ${e.message}")
+            }
+        }
+    }
+
     fun stopTerminal() {
         terminalOutputJob?.cancel()
         terminalOutputJob = null
@@ -177,8 +206,8 @@ class TerminalViewModel @Inject constructor(
 
         _isConnected.value = false
 
-        // Delete PTY via API (best-effort)
-        if (connection != null) {
+        // Only delete PTY if we created it (not connected to an existing one)
+        if (ownsPty && connection != null) {
             viewModelScope.launch {
                 try {
                     val server = serverRepository.getServer(serverId) ?: return@launch
@@ -223,24 +252,26 @@ class TerminalViewModel @Inject constructor(
         terminalOutputJob?.cancel()
         _terminalConnection.value?.disconnect()
 
-        // Best-effort PTY cleanup — fire and forget via cleanupScope
-        // (viewModelScope is already cancelled at this point)
-        val connection = _terminalConnection.value
-        if (connection != null) {
-            cleanupScope.launch {
-                try {
-                    val server = serverRepository.getServer(serverId) ?: return@launch
-                    val cwd = sessionDirectory
-                    api.deletePty(server, connection.ptyId, directory = cwd)
-                } catch (_: Exception) { }
+        // Only delete PTY if we created it
+        if (ownsPty) {
+            val connection = _terminalConnection.value
+            if (connection != null) {
+                // Capture ptyId before launching coroutine, since it runs after onCleared() finishes
+                val ptyId = connection.ptyId
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val server = serverRepository.getServer(serverId) ?: return@launch
+                        val cwd = sessionDirectory
+                        api.deletePty(server, ptyId, directory = cwd)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to delete PTY $ptyId: ${e.message}")
+                    }
+                }
             }
         }
 
         _terminalState.value = null
         _terminalConnection.value = null
-
-        // Cancel cleanup scope after giving cleanup a chance to run
-        cleanupScope.cancel()
     }
 
     companion object {

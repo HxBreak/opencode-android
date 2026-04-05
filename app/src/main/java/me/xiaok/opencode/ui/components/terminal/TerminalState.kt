@@ -150,6 +150,20 @@ class TerminalState(
         val buf = escapeBuffer.toString()
 
         when {
+            // OSC sequence: ESC ] ... BEL(0x07) or ST(ESC \)
+            // Used for: window title, clipboard, hyperlink, etc.
+            // We don't need the data, just consume and discard.
+            buf.startsWith("\u001B]") -> {
+                when {
+                    // Terminated by BEL (0x07)
+                    char.code == 7 -> resetEscape()
+                    // Terminated by ST: ESC \
+                    buf.endsWith("\u001B\\") -> resetEscape()
+                    // Safety: discard if buffer grows too large
+                    buf.length > 512 -> resetEscape()
+                }
+            }
+
             // CSI sequence: ESC [ ... <final byte>
             buf.startsWith("\u001B[") -> {
                 val finalChar = buf.last()
@@ -173,6 +187,10 @@ class TerminalState(
             }
             // ESC ) <charset> — designate charset (consume)
             buf.length == 3 && buf[1] == ')' -> {
+                resetEscape()
+            }
+            // ESC = / ESC > — alternate keypad (consume)
+            buf == "\u001B=" || buf == "\u001B>" -> {
                 resetEscape()
             }
             // Unknown escape, reset if buffer is getting too long

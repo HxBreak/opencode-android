@@ -1,5 +1,7 @@
 package me.xiaok.opencode.ui.screens.terminal
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +23,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -28,19 +33,46 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import me.xiaok.opencode.domain.model.PtyInfo
 import me.xiaok.opencode.ui.components.terminal.TerminalView
 
 // ---------------------------------------------------------------------------
 // Route: wires ViewModel to the stateless TerminalScreen
 // ---------------------------------------------------------------------------
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TerminalRoute(
     onNavigateBack: () -> Unit,
+    onNavigateToPty: (serverId: String, sessionId: String?, ptyId: String) -> Unit,
+    onNavigateToNewTerminal: (serverId: String, sessionId: String?) -> Unit,
     viewModel: TerminalViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val terminalState by viewModel.terminalState.collectAsStateWithLifecycle()
+    val ptySessions by viewModel.ptyList.collectAsStateWithLifecycle()
+
+    var showPtyListDialog by remember { mutableStateOf(false) }
+
+    if (showPtyListDialog) {
+        val runningPtys = ptySessions.filter { it.status == "running" }
+        PtyListDialog(
+            ptys = runningPtys,
+            currentPtyId = uiState.ptyId,
+            onPtyClick = { pty ->
+                showPtyListDialog = false
+                onNavigateToPty(viewModel.serverId, viewModel.sessionId, pty.id)
+            },
+            onPtyDelete = { ptyId ->
+                viewModel.deletePty(ptyId)
+            },
+            onCreateNew = {
+                showPtyListDialog = false
+                onNavigateToNewTerminal(viewModel.serverId, viewModel.sessionId)
+            },
+            onDismiss = { showPtyListDialog = false },
+        )
+    }
 
     TerminalScreen(
         uiState = uiState,
@@ -49,6 +81,7 @@ fun TerminalRoute(
         onSendTerminalInput = { viewModel.sendTerminalInput(it) },
         onResizeTerminal = { cols, rows -> viewModel.resizeTerminal(cols, rows) },
         onRetry = { viewModel.startTerminal() },
+        onTitleLongPress = { showPtyListDialog = true },
     )
 }
 
@@ -56,15 +89,16 @@ fun TerminalRoute(
 // Stateless TerminalScreen
 // ---------------------------------------------------------------------------
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun TerminalScreen(
     uiState: TerminalUiState,
-    terminalState: me.xiaok.opencode.ui.components.terminal.TerminalState?,
+    terminalState: TerminalState?,
     onNavigateBack: () -> Unit,
     onSendTerminalInput: (String) -> Unit,
     onResizeTerminal: (Int, Int) -> Unit,
     onRetry: () -> Unit,
+    onTitleLongPress: () -> Unit = {},
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
@@ -77,6 +111,10 @@ fun TerminalScreen(
                         text = "Terminal",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
+                        ),
+                        modifier = Modifier.combinedClickable(
+                            onClick = {},
+                            onLongClick = onTitleLongPress,
                         ),
                     )
                 },
@@ -147,3 +185,6 @@ fun TerminalScreen(
         }
     }
 }
+
+// Type alias to avoid fully-qualified reference
+private typealias TerminalState = me.xiaok.opencode.ui.components.terminal.TerminalState
