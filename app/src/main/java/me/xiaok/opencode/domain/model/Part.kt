@@ -140,9 +140,14 @@ data class PartTime(
 
 @Serializable
 data class FileDiff(
+    /** API returns "file", we map to [path] for internal use. */
+    @SerialName("file")
     val path: String = "",
+    /** Complete file content before the change. */
+    val before: String = "",
+    /** Complete file content after the change. */
+    val after: String = "",
     val additions: Int = 0,
     val deletions: Int = 0,
-    val content: String = "",
-    val patch: String = "",
+    val status: String? = null,
 )

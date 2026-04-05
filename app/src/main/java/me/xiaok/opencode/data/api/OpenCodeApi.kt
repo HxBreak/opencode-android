@@ -82,18 +82,22 @@ class OpenCodeApi @Inject constructor(
     suspend fun getSession(
         conn: ServerConnection,
         sessionId: String,
+        directory: String? = null,
     ): Session {
         return client.get(conn.buildUrl("/session/$sessionId")) {
             withAuth(conn)
+            directory?.let { parameter("directory", it) }
         }.body()
     }
 
     suspend fun deleteSession(
         conn: ServerConnection,
         sessionId: String,
+        directory: String? = null,
     ): Boolean {
         return client.delete(conn.buildUrl("/session/$sessionId")) {
             withAuth(conn)
+            withDirectory(directory)
         }.body()
     }
 
@@ -103,6 +107,7 @@ class OpenCodeApi @Inject constructor(
         title: String? = null,
         archived: Long? = null,
         unarchive: Boolean = false,
+        directory: String? = null,
     ): Session {
         val body = buildJsonObject {
             title?.let { put("title", it) }
@@ -114,6 +119,7 @@ class OpenCodeApi @Inject constructor(
         }
         return client.patch(conn.buildUrl("/session/$sessionId")) {
             withAuth(conn)
+            withDirectory(directory)
             contentType(ContentType.Application.Json)
             setBody(body)
         }.body()
@@ -122,9 +128,11 @@ class OpenCodeApi @Inject constructor(
     suspend fun abortSession(
         conn: ServerConnection,
         sessionId: String,
+        directory: String? = null,
     ): Boolean {
         return client.post(conn.buildUrl("/session/$sessionId/abort")) {
             withAuth(conn)
+            withDirectory(directory)
         }.body()
     }
 
@@ -151,9 +159,11 @@ class OpenCodeApi @Inject constructor(
         sessionId: String,
         limit: Int? = null,
         before: String? = null,
+        directory: String? = null,
     ): MessagesPage {
         val response: HttpResponse = client.get(conn.buildUrl("/session/$sessionId/message")) {
             withAuth(conn)
+            directory?.let { parameter("directory", it) }
             limit?.let { parameter("limit", it) }
             before?.let { parameter("before", it) }
         }
@@ -191,7 +201,7 @@ class OpenCodeApi @Inject constructor(
     suspend fun promptAsync(
         conn: ServerConnection,
         sessionId: String,
-        parts: List<Map<String, String>>? = null,
+        parts: List<Map<String, Any>>? = null,
         agent: String? = null,
         model: ModelRef? = null,
         variant: String? = null,
@@ -199,7 +209,7 @@ class OpenCodeApi @Inject constructor(
     ) {
         val url = conn.buildUrl("/session/$sessionId/prompt_async")
 
-        // Build JSON body manually to omit null variant field (server rejects null)
+        // Build JSON body with proper type handling for nested structures (source, etc.)
         val bodyJson = kotlinx.serialization.json.buildJsonObject {
             agent?.let { put("agent", it) }
             model?.let {
@@ -209,17 +219,17 @@ class OpenCodeApi @Inject constructor(
                 })
             }
             variant?.let { put("variant", it) }
-            parts?.let { put("parts", kotlinx.serialization.json.JsonArray(it.map { p ->
-                kotlinx.serialization.json.buildJsonObject {
-                    p.forEach { (k, v) -> put(k, v) }
-                }
-            })) }
+            parts?.let { partsList ->
+                put("parts", kotlinx.serialization.json.JsonArray(partsList.map { partMap ->
+                    anyMapToJson(partMap)
+                }))
+            }
         }
         Log.d(TAG, "promptAsync: POST $url body=$bodyJson")
 
         val response: HttpResponse = client.post(url) {
             withAuth(conn)
-            directory?.let { parameter("directory", it) }
+            withDirectory(directory)
             contentType(ContentType.Application.Json)
             setBody(bodyJson)
         }
@@ -233,11 +243,41 @@ class OpenCodeApi @Inject constructor(
         Log.d(TAG, "promptAsync: response received, status=${response.status.value}")
     }
 
+    /**
+     * Recursively convert a Map<String, Any> to a JsonObject.
+     * Supports String values and nested Map<String, Any> values.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun anyMapToJson(map: Map<String, Any>): kotlinx.serialization.json.JsonObject {
+        return kotlinx.serialization.json.buildJsonObject {
+            map.forEach { (key, value) ->
+                when (value) {
+                    is String -> put(key, value)
+                    is Int -> put(key, value)
+                    is Long -> put(key, value)
+                    is Double -> put(key, value)
+                    is Float -> put(key, value)
+                    is Number -> put(key, value.toDouble())
+                    is Boolean -> put(key, value)
+                    is Map<*, *> -> {
+                        val nested = value as Map<String, Any>
+                        put(key, anyMapToJson(nested))
+                    }
+                    else -> put(key, value.toString())
+                }
+            }
+        }
+    }
+
     // === Session Status ===
 
-    suspend fun getSessionStatuses(conn: ServerConnection): Map<String, String> {
+    suspend fun getSessionStatuses(
+        conn: ServerConnection,
+        directory: String? = null,
+    ): Map<String, String> {
         return client.get(conn.buildUrl("/session/status")) {
             withAuth(conn)
+            directory?.let { parameter("directory", it) }
         }.body()
     }
 
@@ -268,9 +308,13 @@ class OpenCodeApi @Inject constructor(
     suspend fun listFiles(
         conn: ServerConnection,
         path: String = ".",
+        workspace: String? = null,
+        directory: String? = null,
     ): List<FileNode> {
         return client.get(conn.buildUrl("/file")) {
             withAuth(conn)
+            withDirectory(directory)
+            withWorkspace(workspace)
             parameter("path", path)
         }.body()
     }
@@ -278,16 +322,26 @@ class OpenCodeApi @Inject constructor(
     suspend fun getFileContent(
         conn: ServerConnection,
         path: String,
-    ): String {
+        workspace: String? = null,
+        directory: String? = null,
+    ): FileContent {
         return client.get(conn.buildUrl("/file/content")) {
             withAuth(conn)
+            withDirectory(directory)
+            withWorkspace(workspace)
             parameter("path", path)
         }.body()
     }
 
-    suspend fun getFileStatuses(conn: ServerConnection): List<FileStatus> {
+    suspend fun getFileStatuses(
+        conn: ServerConnection,
+        workspace: String? = null,
+        directory: String? = null,
+    ): List<FileStatus> {
         return client.get(conn.buildUrl("/file/status")) {
             withAuth(conn)
+            withDirectory(directory)
+            withWorkspace(workspace)
         }.body()
     }
 
@@ -296,9 +350,13 @@ class OpenCodeApi @Inject constructor(
     suspend fun textSearch(
         conn: ServerConnection,
         pattern: String,
+        workspace: String? = null,
+        directory: String? = null,
     ): List<JsonElement> {
         return client.get(conn.buildUrl("/find")) {
             withAuth(conn)
+            withDirectory(directory)
+            withWorkspace(workspace)
             parameter("pattern", pattern)
         }.body()
     }
@@ -309,9 +367,13 @@ class OpenCodeApi @Inject constructor(
         dirs: String? = null,
         type: String? = null,
         limit: Int? = null,
+        workspace: String? = null,
+        directory: String? = null,
     ): List<String> {
         return client.get(conn.buildUrl("/find/file")) {
             withAuth(conn)
+            withDirectory(directory)
+            withWorkspace(workspace)
             parameter("query", query)
             dirs?.let { parameter("dirs", it) }
             type?.let { parameter("type", it) }
@@ -406,9 +468,11 @@ class OpenCodeApi @Inject constructor(
         conn: ServerConnection,
         permissionId: String,
         reply: PermissionReply,
+        directory: String? = null,
     ) {
         client.post(conn.buildUrl("/permission/$permissionId/reply")) {
             withAuth(conn)
+            withDirectory(directory)
             contentType(ContentType.Application.Json)
             setBody(reply)
         }
@@ -461,9 +525,13 @@ class OpenCodeApi @Inject constructor(
         conn: ServerConnection,
         sessionId: String,
         messageId: String? = null,
+        directory: String? = null,
+        workspace: String? = null,
     ): List<FileDiff> {
         return client.get(conn.buildUrl("/session/$sessionId/diff")) {
             withAuth(conn)
+            withDirectory(directory)
+            withWorkspace(workspace)
             messageId?.let { parameter("messageID", it) }
         }.body()
     }
@@ -473,9 +541,11 @@ class OpenCodeApi @Inject constructor(
     suspend fun getSessionTodos(
         conn: ServerConnection,
         sessionId: String,
+        directory: String? = null,
     ): List<Todo> {
         return client.get(conn.buildUrl("/session/$sessionId/todo")) {
             withAuth(conn)
+            directory?.let { parameter("directory", it) }
         }.body()
     }
 
@@ -489,7 +559,7 @@ class OpenCodeApi @Inject constructor(
     ): Session {
         return client.post(conn.buildUrl("/session/$sessionId/fork")) {
             withAuth(conn)
-            directory?.let { parameter("directory", it) }
+            withDirectory(directory)
             contentType(ContentType.Application.Json)
             setBody(mapOf("messageID" to messageId))
         }.body()
@@ -498,18 +568,22 @@ class OpenCodeApi @Inject constructor(
     suspend fun shareSession(
         conn: ServerConnection,
         sessionId: String,
+        directory: String? = null,
     ): SessionShare {
         return client.post(conn.buildUrl("/session/$sessionId/share")) {
             withAuth(conn)
+            withDirectory(directory)
         }.body()
     }
 
     suspend fun unshareSession(
         conn: ServerConnection,
         sessionId: String,
+        directory: String? = null,
     ): Boolean {
         return client.delete(conn.buildUrl("/session/$sessionId/share")) {
             withAuth(conn)
+            withDirectory(directory)
         }.body()
     }
 
@@ -517,9 +591,11 @@ class OpenCodeApi @Inject constructor(
         conn: ServerConnection,
         sessionId: String,
         messageId: String,
+        directory: String? = null,
     ) {
         client.post(conn.buildUrl("/session/$sessionId/revert")) {
             withAuth(conn)
+            withDirectory(directory)
             contentType(ContentType.Application.Json)
             setBody(mapOf("messageID" to messageId))
         }
@@ -530,9 +606,11 @@ class OpenCodeApi @Inject constructor(
         sessionId: String,
         providerId: String? = null,
         modelId: String? = null,
+        directory: String? = null,
     ): Boolean {
         return client.post(conn.buildUrl("/session/$sessionId/summarize")) {
             withAuth(conn)
+            withDirectory(directory)
             contentType(ContentType.Application.Json)
             setBody(buildMap {
                 providerId?.let { put("providerID", it) }
@@ -544,9 +622,11 @@ class OpenCodeApi @Inject constructor(
     suspend fun unrevertSession(
         conn: ServerConnection,
         sessionId: String,
+        directory: String? = null,
     ): Session {
         return client.post(conn.buildUrl("/session/$sessionId/unrevert")) {
             withAuth(conn)
+            withDirectory(directory)
         }.body()
     }
 
@@ -555,18 +635,22 @@ class OpenCodeApi @Inject constructor(
     suspend fun initSession(
         conn: ServerConnection,
         sessionId: String,
+        directory: String? = null,
     ): Session {
         return client.post(conn.buildUrl("/session/$sessionId/init")) {
             withAuth(conn)
+            withDirectory(directory)
         }.body()
     }
 
     suspend fun getSessionChildren(
         conn: ServerConnection,
         sessionId: String,
+        directory: String? = null,
     ): List<Session> {
         return client.get(conn.buildUrl("/session/$sessionId/children")) {
             withAuth(conn)
+            directory?.let { parameter("directory", it) }
         }.body()
     }
 
@@ -576,9 +660,11 @@ class OpenCodeApi @Inject constructor(
         conn: ServerConnection,
         sessionId: String,
         messageId: String,
+        directory: String? = null,
     ): Boolean {
         return client.delete(conn.buildUrl("/session/$sessionId/message/$messageId")) {
             withAuth(conn)
+            withDirectory(directory)
         }.body()
     }
 
@@ -588,9 +674,11 @@ class OpenCodeApi @Inject constructor(
         messageId: String,
         partId: String,
         update: Map<String, kotlinx.serialization.json.JsonElement>,
+        directory: String? = null,
     ): Part {
         return client.patch(conn.buildUrl("/session/$sessionId/message/$messageId/part/$partId")) {
             withAuth(conn)
+            withDirectory(directory)
             contentType(ContentType.Application.Json)
             setBody(update)
         }.body()
@@ -601,9 +689,11 @@ class OpenCodeApi @Inject constructor(
         sessionId: String,
         messageId: String,
         partId: String,
+        directory: String? = null,
     ): Boolean {
         return client.delete(conn.buildUrl("/session/$sessionId/message/$messageId/part/$partId")) {
             withAuth(conn)
+            withDirectory(directory)
         }.body()
     }
 
@@ -614,9 +704,11 @@ class OpenCodeApi @Inject constructor(
         sessionId: String,
         command: String,
         arguments: String? = null,
+        directory: String? = null,
     ) {
         client.post(conn.buildUrl("/session/$sessionId/shell")) {
             withAuth(conn)
+            withDirectory(directory)
             contentType(ContentType.Application.Json)
             setBody(buildMap {
                 put("command", command)
@@ -632,9 +724,11 @@ class OpenCodeApi @Inject constructor(
         sessionId: String,
         command: String,
         arguments: String? = null,
+        directory: String? = null,
     ) {
         client.post(conn.buildUrl("/session/$sessionId/command")) {
             withAuth(conn)
+            withDirectory(directory)
             contentType(ContentType.Application.Json)
             setBody(buildMap {
                 put("command", command)
@@ -860,7 +954,7 @@ class OpenCodeApi @Inject constructor(
     ): Boolean {
         return client.post(conn.buildUrl("/instance/dispose")) {
             withAuth(conn)
-            directory?.let { parameter("directory", it) }
+            withDirectory(directory)
         }.body()
     }
 
@@ -994,6 +1088,10 @@ class OpenCodeApi @Inject constructor(
 
     private fun HttpRequestBuilder.withDirectory(directory: String?) {
         directory?.let { header("x-opencode-directory", it) }
+    }
+
+    private fun HttpRequestBuilder.withWorkspace(workspace: String?) {
+        workspace?.let { header("x-opencode-workspace", it) }
     }
 
     private fun ServerConnection.buildUrl(path: String): String {
