@@ -3,12 +3,15 @@ package me.xiaok.opencode.ui.screens.files
 import androidx.lifecycle.SavedStateHandle
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import me.xiaok.opencode.data.api.OpenCodeApi
+import me.xiaok.opencode.data.repository.EventReducer
 import me.xiaok.opencode.data.repository.ServerRepository
+import me.xiaok.opencode.domain.model.Project
 import me.xiaok.opencode.domain.model.ServerConnection
 import me.xiaok.opencode.fixtures.TestFixtures
 import me.xiaok.opencode.utils.CoroutineTestRule
@@ -33,6 +36,7 @@ class FileBrowserViewModelTest {
 
     private val api = mockk<OpenCodeApi>(relaxed = true)
     private val serverRepository = mockk<ServerRepository>(relaxed = true)
+    private val eventReducer = mockk<EventReducer>(relaxed = true)
     private val errorCollector = mockk<ErrorCollector>(relaxed = true)
     private val server = TestFixtures.testServerConnection()
 
@@ -45,6 +49,7 @@ class FileBrowserViewModelTest {
         every { android.util.Log.w(any(), any<String>()) } returns 0
 
         every { serverRepository.getServer("test_server") } returns server
+        every { eventReducer.sessions } returns MutableStateFlow(emptyMap())
     }
 
     @After
@@ -52,9 +57,10 @@ class FileBrowserViewModelTest {
         unmockkStatic(android.util.Log::class)
     }
 
-    private fun createViewModel(): FileBrowserViewModel {
-        val savedStateHandle = SavedStateHandle(mapOf("serverId" to "test_server"))
-        return FileBrowserViewModel(savedStateHandle, api, serverRepository, errorCollector)
+    private fun createViewModel(
+        savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("serverId" to "test_server"))
+    ): FileBrowserViewModel {
+        return FileBrowserViewModel(savedStateHandle, api, serverRepository, eventReducer, errorCollector)
     }
 
     @Test
@@ -63,8 +69,9 @@ class FileBrowserViewModelTest {
             TestFixtures.testFileNode(name = "src", path = "src", type = "directory"),
             TestFixtures.testFileNodeFile(name = "App.kt", path = "src/App.kt"),
         )
-        coEvery { api.listFiles(server, ".") } returns files
-        coEvery { api.getFileStatuses(server) } returns emptyList()
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns files
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
 
         val vm = createViewModel()
         val collectJob = launch { vm.uiState.collect {} }
@@ -82,8 +89,9 @@ class FileBrowserViewModelTest {
 
     @Test
     fun `loadDirectory failure sets error`() = testScope.runTest {
-        coEvery { api.listFiles(server, ".") } throws RuntimeException("disk error")
-        coEvery { api.getFileStatuses(server) } returns emptyList()
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } throws RuntimeException("disk error")
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
 
         val vm = createViewModel()
         val collectJob = launch { vm.uiState.collect {} }
@@ -97,9 +105,10 @@ class FileBrowserViewModelTest {
 
     @Test
     fun `loadFileContent success updates fileContent and viewingFilePath`() = testScope.runTest {
-        coEvery { api.listFiles(server, ".") } returns emptyList()
-        coEvery { api.getFileStatuses(server) } returns emptyList()
-        coEvery { api.getFileContent(server, "src/App.kt") } returns "fun main() {}"
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileContent(server, "src/App.kt", workspace = null, directory = null) } returns "fun main() {}"
 
         val vm = createViewModel()
         val collectJob = launch { vm.uiState.collect {} }
@@ -118,9 +127,10 @@ class FileBrowserViewModelTest {
 
     @Test
     fun `loadFileContent failure sets error`() = testScope.runTest {
-        coEvery { api.listFiles(server, ".") } returns emptyList()
-        coEvery { api.getFileStatuses(server) } returns emptyList()
-        coEvery { api.getFileContent(server, "missing.txt") } throws RuntimeException("not found")
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileContent(server, "missing.txt", workspace = null, directory = null) } throws RuntimeException("not found")
 
         val vm = createViewModel()
         val collectJob = launch { vm.uiState.collect {} }
@@ -137,9 +147,10 @@ class FileBrowserViewModelTest {
     @Test
     fun `searchContent success updates searchResults`() = testScope.runTest {
         val results = listOf(JsonObject(emptyMap()))
-        coEvery { api.listFiles(server, ".") } returns emptyList()
-        coEvery { api.getFileStatuses(server) } returns emptyList()
-        coEvery { api.textSearch(server, "TODO") } returns results
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
+        coEvery { api.textSearch(server, "TODO", workspace = null, directory = null) } returns results
 
         val vm = createViewModel()
         val collectJob = launch { vm.uiState.collect {} }
@@ -156,8 +167,9 @@ class FileBrowserViewModelTest {
 
     @Test
     fun `searchContent with blank pattern clears results`() = testScope.runTest {
-        coEvery { api.listFiles(server, ".") } returns emptyList()
-        coEvery { api.getFileStatuses(server) } returns emptyList()
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
 
         val vm = createViewModel()
         val collectJob = launch { vm.uiState.collect {} }
@@ -167,16 +179,17 @@ class FileBrowserViewModelTest {
         advanceUntilIdle()
 
         assertEquals(emptyList<Any>(), vm.uiState.value.searchResults)
-        coVerify(exactly = 0) { api.textSearch(any(), any()) }
+        coVerify(exactly = 0) { api.textSearch(any(), any(), workspace = any(), directory = any()) }
 
         collectJob.cancel()
     }
 
     @Test
     fun `searchFiles success updates fileNameResults`() = testScope.runTest {
-        coEvery { api.listFiles(server, ".") } returns emptyList()
-        coEvery { api.getFileStatuses(server) } returns emptyList()
-        coEvery { api.fileSearch(server, "App") } returns listOf("src/App.kt")
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
+        coEvery { api.fileSearch(server, "App", workspace = null, directory = null) } returns listOf("src/App.kt")
 
         val vm = createViewModel()
         val collectJob = launch { vm.uiState.collect {} }
@@ -195,9 +208,10 @@ class FileBrowserViewModelTest {
     fun `navigateUp from subdirectory goes to parent`() = testScope.runTest {
         val rootFiles = listOf(TestFixtures.testFileNode(name = "src", path = "src"))
         val subFiles = listOf(TestFixtures.testFileNodeFile(name = "App.kt", path = "src/App.kt"))
-        coEvery { api.listFiles(server, ".") } returns rootFiles
-        coEvery { api.listFiles(server, "src") } returns subFiles
-        coEvery { api.getFileStatuses(server) } returns emptyList()
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns rootFiles
+        coEvery { api.listFiles(server, "src", workspace = null, directory = null) } returns subFiles
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
 
         val vm = createViewModel()
         val collectJob = launch { vm.uiState.collect {} }
@@ -220,8 +234,9 @@ class FileBrowserViewModelTest {
 
     @Test
     fun `navigateUp at root does nothing`() = testScope.runTest {
-        coEvery { api.listFiles(server, ".") } returns emptyList()
-        coEvery { api.getFileStatuses(server) } returns emptyList()
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
 
         val vm = createViewModel()
         val collectJob = launch { vm.uiState.collect {} }
@@ -237,10 +252,11 @@ class FileBrowserViewModelTest {
 
     @Test
     fun `clearSearch resets search state`() = testScope.runTest {
-        coEvery { api.listFiles(server, ".") } returns emptyList()
-        coEvery { api.getFileStatuses(server) } returns emptyList()
-        coEvery { api.textSearch(server, "query") } returns listOf(JsonObject(emptyMap()))
-        coEvery { api.fileSearch(server, "query") } returns listOf("file.kt")
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
+        coEvery { api.textSearch(server, "query", workspace = null, directory = null) } returns listOf(JsonObject(emptyMap()))
+        coEvery { api.fileSearch(server, "query", workspace = null, directory = null) } returns listOf("file.kt")
 
         val vm = createViewModel()
         val collectJob = launch { vm.uiState.collect {} }
@@ -268,8 +284,9 @@ class FileBrowserViewModelTest {
 
     @Test
     fun `clearError resets error to null`() = testScope.runTest {
-        coEvery { api.listFiles(server, ".") } throws RuntimeException("err")
-        coEvery { api.getFileStatuses(server) } returns emptyList()
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } throws RuntimeException("err")
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
 
         val vm = createViewModel()
         val collectJob = launch { vm.uiState.collect {} }
@@ -281,6 +298,51 @@ class FileBrowserViewModelTest {
         advanceUntilIdle()
 
         assertNull(vm.uiState.value.error)
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `directory from navigation argument is used`() = testScope.runTest {
+        val files = listOf(
+            TestFixtures.testFileNode(name = "src", path = "src", type = "directory"),
+        )
+        // When directory is provided via navigation, getCurrentProject should NOT be called
+        coEvery { api.listFiles(server, ".", workspace = null, directory = "/home/user/project") } returns files
+        coEvery { api.getFileStatuses(server, workspace = null, directory = "/home/user/project") } returns emptyList()
+
+        val savedStateHandle = SavedStateHandle(mapOf(
+            "serverId" to "test_server",
+            "directory" to "/home/user/project",
+        ))
+        val vm = createViewModel(savedStateHandle)
+        val collectJob = launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.uiState.value
+        assertEquals(".", state.currentPath)
+        assertEquals(1, state.fileTree.size)
+        coVerify(exactly = 0) { api.getCurrentProject(any()) }
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `fallback to getCurrentProject when no directory provided`() = testScope.runTest {
+        val files = listOf(
+            TestFixtures.testFileNode(name = "src", path = "src", type = "directory"),
+        )
+        coEvery { api.getCurrentProject(server) } returns Project(id = "p1", worktree = "/home/user/project")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = "/home/user/project") } returns files
+        coEvery { api.getFileStatuses(server, workspace = null, directory = "/home/user/project") } returns emptyList()
+
+        val vm = createViewModel()
+        val collectJob = launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.uiState.value
+        assertEquals(1, state.fileTree.size)
+        coVerify(exactly = 1) { api.getCurrentProject(server) }
 
         collectJob.cancel()
     }
