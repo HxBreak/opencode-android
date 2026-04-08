@@ -18,3 +18,7 @@ app/*.jks
 
 # Sisyphus planner
 .sisyphus/
+
+# Screenshots - keep PNGs, exclude UI dumps
+screenshots/*.txt
+screenshots/*.xml

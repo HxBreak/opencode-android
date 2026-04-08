@@ -16,43 +16,18 @@ SSE Event → EventReducer → StateFlow → ViewModel → Compose UI
 
 For detailed architecture documentation, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
-## Tech Stack
+## Screenshots
 
-| Layer | Technology |
-|-------|-----------|
-| UI | Jetpack Compose + Material 3 |
-| Architecture | MVI + EventReducer (Redux-like) |
-| Navigation | Compose Navigation (sealed class routes) |
-| DI | Hilt |
-| Network | Ktor Client (OkHttp engine) |
-| Serialization | kotlinx.serialization (sealed class polymorphism) |
-| Async | Coroutines + Flow |
-| Local Storage | Room + DataStore Preferences |
-| Image Loading | Coil 3 |
-| Markdown | multiplatform-markdown-renderer |
-| SSE | OkHttp EventSource |
-| WebSocket | OkHttp WebSocket (PTY terminal) |
-| Security | EncryptedSharedPreferences (credential storage) |
+<p align="center">
+  <img src="screenshots/01_home.png" width="22%" />
+  <img src="screenshots/03_project_list.png" width="22%" />
+  <img src="screenshots/04_session_list.png" width="22%" />
+  <img src="screenshots/05_chat.png" width="22%" />
+</p>
 
 ## Project Status
 
 🚧 **Early Development** — Architecture planning complete, implementation starting.
-
-## OpenCode API
-
-The app targets OpenCode API v1.3.10+ with **106 endpoints across 24 modules**:
-
-- **Session** (27 endpoints) — CRUD, messaging, streaming, sharing, forking, reverting
-- **Global** (7 endpoints) — Health check, global SSE events, config
-- **Provider** (4 endpoints) — LLM provider management + OAuth
-- **Permission** (2 endpoints) — Runtime permission requests/replies
-- **Question** (3 endpoints) — AI-to-user structured questions
-- **File/Find** (6 endpoints) — File browsing, content reading, search
-- **PTY** (6 endpoints) — Terminal sessions via REST + WebSocket
-- **Auth** (2 endpoints) — Provider credential management
-- + 16 more modules
-
-Authentication: HTTP Basic Auth + `x-opencode-directory` / `x-opencode-workspace` headers.
 
 ## Build
 

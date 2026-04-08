@@ -22,6 +22,16 @@ import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.domain.model.*
 import me.xiaok.opencode.fixtures.TestFixtures
+import me.xiaok.opencode.ui.screens.chat.usecases.ChatCommandUseCase
+import me.xiaok.opencode.ui.screens.chat.usecases.DraftManagementUseCase
+import me.xiaok.opencode.ui.screens.chat.usecases.MentionManagementUseCase
+import me.xiaok.opencode.ui.screens.chat.usecases.MessageLoadingUseCase
+import me.xiaok.opencode.ui.screens.chat.usecases.ModelSelectionUseCase
+import me.xiaok.opencode.ui.screens.chat.usecases.PermissionQuestionUseCase
+import me.xiaok.opencode.ui.screens.chat.usecases.SendMessageUseCase
+import me.xiaok.opencode.ui.screens.chat.usecases.SessionNavigationUseCase
+import me.xiaok.opencode.ui.screens.chat.usecases.SessionOpsUseCase
+import me.xiaok.opencode.ui.screens.chat.usecases.SessionStatsUseCase
 import me.xiaok.opencode.utils.CoroutineTestRule
 import me.xiaok.opencode.utils.ErrorCollector
 import me.xiaok.opencode.utils.ImageCompressor
@@ -57,6 +67,16 @@ class ChatViewModelTest {
     private lateinit var imageCompressor: ImageCompressor
     private lateinit var cacheRepository: CacheRepository
     private lateinit var errorCollector: ErrorCollector
+    private lateinit var sessionStatsUseCase: SessionStatsUseCase
+    private lateinit var draftManagementUseCase: DraftManagementUseCase
+    private lateinit var mentionManagementUseCase: MentionManagementUseCase
+    private lateinit var permissionQuestionUseCase: PermissionQuestionUseCase
+    private lateinit var sessionNavigationUseCase: SessionNavigationUseCase
+    private lateinit var sessionOpsUseCase: me.xiaok.opencode.ui.screens.chat.usecases.SessionOpsUseCase
+    private lateinit var sendMessageUseCase: SendMessageUseCase
+    private lateinit var modelSelectionUseCase: ModelSelectionUseCase
+    private lateinit var messageLoadingUseCase: MessageLoadingUseCase
+    private lateinit var chatCommandUseCase: ChatCommandUseCase
     private lateinit var testScope: TestScope
 
     @Before
@@ -78,6 +98,16 @@ class ChatViewModelTest {
         settingsRepository = mockk(relaxed = true)
         imageCompressor = mockk(relaxed = true)
         errorCollector = mockk(relaxed = true)
+        sessionStatsUseCase = SessionStatsUseCase()
+        draftManagementUseCase = DraftManagementUseCase(draftRepository)
+        mentionManagementUseCase = MentionManagementUseCase(api, eventReducer, serverRepository)
+        permissionQuestionUseCase = PermissionQuestionUseCase(api, eventReducer, serverRepository, errorCollector)
+        sessionNavigationUseCase = SessionNavigationUseCase(api, eventReducer, serverRepository)
+        sessionOpsUseCase = me.xiaok.opencode.ui.screens.chat.usecases.SessionOpsUseCase(api, eventReducer, serverRepository, errorCollector)
+        sendMessageUseCase = SendMessageUseCase(api, eventReducer, serverRepository, draftRepository, settingsRepository, errorCollector)
+        modelSelectionUseCase = ModelSelectionUseCase(api, eventReducer, serverRepository, settingsRepository)
+        messageLoadingUseCase = MessageLoadingUseCase(api, eventReducer, serverRepository, settingsRepository, errorCollector)
+        chatCommandUseCase = ChatCommandUseCase(eventReducer, settingsRepository, sessionOpsUseCase, modelSelectionUseCase, errorCollector)
 
         every { serverRepository.getServer(any()) } returns testServer
         every { serverRepository.servers } returns MutableStateFlow(listOf(testServer))
@@ -121,6 +151,16 @@ class ChatViewModelTest {
             settingsRepository,
             imageCompressor,
             errorCollector,
+            sessionStatsUseCase,
+            draftManagementUseCase,
+            mentionManagementUseCase,
+            permissionQuestionUseCase,
+            sessionNavigationUseCase,
+            sessionOpsUseCase,
+            sendMessageUseCase,
+            modelSelectionUseCase,
+            messageLoadingUseCase,
+            chatCommandUseCase,
         )
     }
 
@@ -841,6 +881,9 @@ class ChatViewModelTest {
         ChatViewModel(
             handle, api, eventReducer, serverRepository,
             draftRepository, settingsRepository, imageCompressor, errorCollector,
+            sessionStatsUseCase, draftManagementUseCase, mentionManagementUseCase,
+            permissionQuestionUseCase, sessionNavigationUseCase, sessionOpsUseCase,
+            sendMessageUseCase, modelSelectionUseCase, messageLoadingUseCase, chatCommandUseCase,
         )
     }
 
@@ -850,6 +893,9 @@ class ChatViewModelTest {
         ChatViewModel(
             handle, api, eventReducer, serverRepository,
             draftRepository, settingsRepository, imageCompressor, errorCollector,
+            sessionStatsUseCase, draftManagementUseCase, mentionManagementUseCase,
+            permissionQuestionUseCase, sessionNavigationUseCase, sessionOpsUseCase,
+            sendMessageUseCase, modelSelectionUseCase, messageLoadingUseCase, chatCommandUseCase,
         )
     }
 }

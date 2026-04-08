@@ -18,6 +18,7 @@ import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.CacheRepository
 import me.xiaok.opencode.data.repository.EventReducer
 import me.xiaok.opencode.data.repository.ServerRepository
+import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.domain.model.*
 import me.xiaok.opencode.fixtures.TestFixtures
 import me.xiaok.opencode.utils.CoroutineTestRule
@@ -44,6 +45,7 @@ class ProjectListViewModelTest {
     private val serverRepository = mockk<ServerRepository>(relaxed = true)
     private val cacheRepository = mockk<CacheRepository>(relaxed = true)
     private val errorCollector = mockk<ErrorCollector>(relaxed = true)
+    private val settingsRepository = mockk<SettingsRepository>(relaxed = true)
 
     private lateinit var testScope: TestScope
     private lateinit var eventReducer: EventReducer
@@ -85,7 +87,7 @@ class ProjectListViewModelTest {
         coEvery { api.listFiles(testServer, ".") } returns testDirEntries
 
         val savedStateHandle = SavedStateHandle(mapOf("serverId" to serverId))
-        return ProjectListViewModel(savedStateHandle, api, serverRepository, eventReducer, errorCollector)
+        return ProjectListViewModel(savedStateHandle, api, serverRepository, eventReducer, errorCollector, settingsRepository)
     }
 
     // === loadProjects ===
@@ -100,7 +102,7 @@ class ProjectListViewModelTest {
         coVerify { api.listProjects(testServer) }
         val state = vm.uiState.first { it.projects.isNotEmpty() }
         assertEquals(2, state.projects.size)
-        assertEquals("prj_1", state.projects[0].id)
+        assertEquals("prj_1", state.projects[0].project.id)
         subscriberScope.cancel()
     }
 

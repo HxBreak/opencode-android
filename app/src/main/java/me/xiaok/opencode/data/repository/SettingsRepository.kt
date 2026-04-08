@@ -25,10 +25,6 @@ class SettingsRepository @Inject constructor(
     val theme: Flow<String> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[THEME] ?: "system" }
     suspend fun setTheme(value: String) = dataStore.edit { it[THEME] = value }
 
-    // Dynamic color
-    val dynamicColor: Flow<Boolean> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[DYNAMIC_COLOR] ?: true }
-    suspend fun setDynamicColor(value: Boolean) = dataStore.edit { it[DYNAMIC_COLOR] = value }
-
     // Reconnect mode: "aggressive", "normal", "conservative"
     val reconnectMode: Flow<String> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[RECONNECT_MODE] ?: "normal" }
     suspend fun setReconnectMode(value: String) = dataStore.edit { it[RECONNECT_MODE] = value }
@@ -37,53 +33,13 @@ class SettingsRepository @Inject constructor(
     val chatFontSize: Flow<String> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[CHAT_FONT_SIZE] ?: "medium" }
     suspend fun setChatFontSize(value: String) = dataStore.edit { it[CHAT_FONT_SIZE] = value }
 
-    // Compact messages
-    val compactMessages: Flow<Boolean> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[COMPACT_MESSAGES] ?: false }
-    suspend fun setCompactMessages(value: Boolean) = dataStore.edit { it[COMPACT_MESSAGES] = value }
-
-    // Code word wrap
-    val codeWordWrap: Flow<Boolean> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[CODE_WORD_WRAP] ?: true }
-    suspend fun setCodeWordWrap(value: Boolean) = dataStore.edit { it[CODE_WORD_WRAP] = value }
-
-    // Collapse tools
-    val collapseTools: Flow<Boolean> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[COLLAPSE_TOOLS] ?: false }
-    suspend fun setCollapseTools(value: Boolean) = dataStore.edit { it[COLLAPSE_TOOLS] = value }
-
     // Initial messages count (25-200)
     val initialMessages: Flow<Int> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[INITIAL_MESSAGES] ?: 50 }
     suspend fun setInitialMessages(value: Int) = dataStore.edit { it[INITIAL_MESSAGES] = value }
 
-    // Confirm send
-    val confirmSend: Flow<Boolean> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[CONFIRM_SEND] ?: false }
-    suspend fun setConfirmSend(value: Boolean) = dataStore.edit { it[CONFIRM_SEND] = value }
-
-    // Haptic feedback
-    val hapticFeedback: Flow<Boolean> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[HAPTIC_FEEDBACK] ?: true }
-    suspend fun setHapticFeedback(value: Boolean) = dataStore.edit { it[HAPTIC_FEEDBACK] = value }
-
     // Image compress
     val imageCompress: Flow<Boolean> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[IMAGE_COMPRESS] ?: true }
     suspend fun setImageCompress(value: Boolean) = dataStore.edit { it[IMAGE_COMPRESS] = value }
-
-    // Keep screen on
-    val keepScreenOn: Flow<Boolean> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[KEEP_SCREEN_ON] ?: false }
-    suspend fun setKeepScreenOn(value: Boolean) = dataStore.edit { it[KEEP_SCREEN_ON] = value }
-
-    // Image max side
-    val imageMaxSide: Flow<Int> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[IMAGE_MAX_SIDE] ?: 2048 }
-    suspend fun setImageMaxSide(value: Int) = dataStore.edit { it[IMAGE_MAX_SIDE] = value }
-
-    // Image WebP quality
-    val imageWebPQuality: Flow<Int> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[IMAGE_WEBP_QUALITY] ?: 70 }
-    suspend fun setImageWebPQuality(value: Int) = dataStore.edit { it[IMAGE_WEBP_QUALITY] = value }
-
-    // Terminal font size
-    val terminalFontSize: Flow<Int> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[TERMINAL_FONT_SIZE] ?: 12 }
-    suspend fun setTerminalFontSize(value: Int) = dataStore.edit { it[TERMINAL_FONT_SIZE] = value }
-
-    // Notifications silent mode
-    val notificationsSilent: Flow<Boolean> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[NOTIFICATIONS_SILENT] ?: false }
-    suspend fun setNotificationsSilent(value: Boolean) = dataStore.edit { it[NOTIFICATIONS_SILENT] = value }
 
     // Notifications enabled
     val notificationsEnabled: Flow<Boolean> = dataStore.data.catch { emit(emptyPreferences()) }.map { it[NOTIFICATIONS_ENABLED] ?: true }
@@ -201,15 +157,9 @@ class SettingsRepository @Inject constructor(
 
     companion object {
         private val THEME = stringPreferencesKey("theme")
-        private val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         private val RECONNECT_MODE = stringPreferencesKey("reconnect_mode")
         private val CHAT_FONT_SIZE = stringPreferencesKey("chat_font_size")
-        private val COMPACT_MESSAGES = booleanPreferencesKey("compact_messages")
-        private val CODE_WORD_WRAP = booleanPreferencesKey("code_word_wrap")
-        private val COLLAPSE_TOOLS = booleanPreferencesKey("collapse_tools")
         private val INITIAL_MESSAGES = intPreferencesKey("initial_messages")
-        private val CONFIRM_SEND = booleanPreferencesKey("confirm_send")
-        private val HAPTIC_FEEDBACK = booleanPreferencesKey("haptic_feedback")
         private val IMAGE_COMPRESS = booleanPreferencesKey("image_compress")
         private val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
         private val COLLAPSED_DIRS = stringPreferencesKey("collapsed_directories")
@@ -218,11 +168,6 @@ class SettingsRepository @Inject constructor(
         private val RECENT_MODELS = stringPreferencesKey("recent_models")
         private val RECENT_AGENTS = stringPreferencesKey("recent_agents")
         private val RECENT_VARIANTS = stringPreferencesKey("recent_variants")
-        private val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
-        private val IMAGE_MAX_SIDE = intPreferencesKey("image_max_side")
-        private val IMAGE_WEBP_QUALITY = intPreferencesKey("image_webp_quality")
-        private val TERMINAL_FONT_SIZE = intPreferencesKey("terminal_font_size")
-        private val NOTIFICATIONS_SILENT = booleanPreferencesKey("notifications_silent")
         private val LOCAL_PROJECTS = stringPreferencesKey("local_projects")
     }
 }

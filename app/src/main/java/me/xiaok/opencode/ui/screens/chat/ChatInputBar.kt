@@ -98,7 +98,7 @@ fun ChatInputBar(
     variants: List<String> = listOf("fast", "think", "agentic"),
     selectedVariant: String? = null,
     onVariantSelected: (String?) -> Unit = {},
-    attachedImages: List<ChatViewModel.AttachedImage> = emptyList(),
+    attachedImages: List<AttachedImage> = emptyList(),
     onAttachImage: () -> Unit = {},
     onRemoveImage: (Int) -> Unit = {},
     commands: List<CommandInfo> = emptyList(),
@@ -463,7 +463,7 @@ fun ChatInputBar(
 
 @Composable
 private fun ImagePreviewRow(
-    images: List<ChatViewModel.AttachedImage>,
+    images: List<AttachedImage>,
     onRemove: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {

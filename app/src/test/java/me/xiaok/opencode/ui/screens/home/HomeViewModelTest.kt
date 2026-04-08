@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import me.xiaok.opencode.data.repository.CacheRepository
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.di.ServiceModule
 import me.xiaok.opencode.domain.model.ServerConnection
@@ -32,6 +33,7 @@ class HomeViewModelTest {
     private val testScope get() = coroutineRule.testScope
 
     private val serverRepository = mockk<ServerRepository>(relaxed = true)
+    private val cacheRepository = mockk<CacheRepository>(relaxed = true)
 
     private val serversFlow = MutableStateFlow<List<ServerConnection>>(emptyList())
     private val connectionStatesFlow = MutableStateFlow<Map<String, ServerRepository.ConnectionState>>(emptyMap())
@@ -55,7 +57,7 @@ class HomeViewModelTest {
 
     private fun createViewModel(): HomeViewModel {
         val context = RuntimeEnvironment.getApplication()
-        return HomeViewModel(context, serverRepository)
+        return HomeViewModel(context, serverRepository, cacheRepository)
     }
 
     @Test
@@ -204,7 +206,7 @@ class HomeViewModelTest {
         mockkObject(ServiceModule)
         every { ServiceModule.connectIntent(any(), any()) } returns intent
 
-        val vm = HomeViewModel(context, serverRepository)
+        val vm = HomeViewModel(context, serverRepository, cacheRepository)
         vm.connect("server_local")
 
         verify { ServiceModule.connectIntent(context, "server_local") }
@@ -221,7 +223,7 @@ class HomeViewModelTest {
         mockkObject(ServiceModule)
         every { ServiceModule.disconnectIntent(any(), any()) } returns intent
 
-        val vm = HomeViewModel(context, serverRepository)
+        val vm = HomeViewModel(context, serverRepository, cacheRepository)
         vm.disconnect("server_local")
 
         verify { ServiceModule.disconnectIntent(context, "server_local") }

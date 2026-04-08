@@ -511,7 +511,7 @@ class OpenCodeApiTest {
         }
         val api = createApi(engine)
         val result = api.getFileContent(testConn(), "src/Main.kt")
-        assertTrue(result.contains("fun main"))
+        assertTrue(result.content.contains("fun main"))
     }
 
     @Test

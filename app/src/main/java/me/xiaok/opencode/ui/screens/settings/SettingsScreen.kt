@@ -16,16 +16,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.KeyboardAlt
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -71,22 +67,11 @@ fun SettingsRoute(
         onNavigateToIconPreview = onNavigateToIconPreview,
         onNavigateToErrorLog = onNavigateToErrorLog,
         onSetTheme = { viewModel.setTheme(it) },
-        onSetDynamicColor = { viewModel.setDynamicColor(it) },
         onSetReconnectMode = { viewModel.setReconnectMode(it) },
         onSetChatFontSize = { viewModel.setChatFontSize(it) },
-        onSetCompactMessages = { viewModel.setCompactMessages(it) },
-        onSetCodeWordWrap = { viewModel.setCodeWordWrap(it) },
-        onSetCollapseTools = { viewModel.setCollapseTools(it) },
         onSetInitialMessages = { viewModel.setInitialMessages(it) },
-        onSetConfirmSend = { viewModel.setConfirmSend(it) },
-        onSetHapticFeedback = { viewModel.setHapticFeedback(it) },
         onSetImageCompress = { viewModel.setImageCompress(it) },
-        onSetImageMaxSide = { viewModel.setImageMaxSide(it) },
-        onSetImageWebPQuality = { viewModel.setImageWebPQuality(it) },
         onSetNotificationsEnabled = { viewModel.setNotificationsEnabled(it) },
-        onSetNotificationsSilent = { viewModel.setNotificationsSilent(it) },
-        onSetKeepScreenOn = { viewModel.setKeepScreenOn(it) },
-        onSetTerminalFontSize = { viewModel.setTerminalFontSize(it) },
         onClearCacheData = { viewModel.clearCacheData() },
     )
 }
@@ -103,22 +88,11 @@ fun SettingsScreen(
     onNavigateToIconPreview: () -> Unit = {},
     onNavigateToErrorLog: () -> Unit = {},
     onSetTheme: (String) -> Unit,
-    onSetDynamicColor: (Boolean) -> Unit,
     onSetReconnectMode: (String) -> Unit,
     onSetChatFontSize: (String) -> Unit,
-    onSetCompactMessages: (Boolean) -> Unit,
-    onSetCodeWordWrap: (Boolean) -> Unit,
-    onSetCollapseTools: (Boolean) -> Unit,
     onSetInitialMessages: (Int) -> Unit,
-    onSetConfirmSend: (Boolean) -> Unit,
-    onSetHapticFeedback: (Boolean) -> Unit,
     onSetImageCompress: (Boolean) -> Unit,
-    onSetImageMaxSide: (Int) -> Unit,
-    onSetImageWebPQuality: (Int) -> Unit,
     onSetNotificationsEnabled: (Boolean) -> Unit,
-    onSetNotificationsSilent: (Boolean) -> Unit,
-    onSetKeepScreenOn: (Boolean) -> Unit,
-    onSetTerminalFontSize: (Int) -> Unit,
     onClearCacheData: () -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -263,14 +237,6 @@ fun SettingsScreen(
                 )
             }
             item {
-                SwitchSettingItem(
-                    title = "Dynamic color",
-                    subtitle = "Use Material You colors from wallpaper",
-                    checked = uiState.dynamicColor,
-                    onCheckedChange = onSetDynamicColor,
-                )
-            }
-            item {
                 ClickableSettingItem(
                     title = "Icon preview",
                     subtitle = "Preview and select AI-generated app icons",
@@ -300,75 +266,12 @@ fun SettingsScreen(
                 )
             }
             item {
-                SwitchSettingItem(
-                    title = "Compact messages",
-                    subtitle = "Reduce spacing between messages",
-                    checked = uiState.compactMessages,
-                    onCheckedChange = onSetCompactMessages,
-                )
-            }
-            item {
-                SwitchSettingItem(
-                    title = "Code word wrap",
-                    subtitle = "Wrap long lines in code blocks",
-                    checked = uiState.codeWordWrap,
-                    onCheckedChange = onSetCodeWordWrap,
-                )
-            }
-            item {
-                SwitchSettingItem(
-                    title = "Collapse tools",
-                    subtitle = "Auto-collapse tool execution results",
-                    checked = uiState.collapseTools,
-                    onCheckedChange = onSetCollapseTools,
-                )
-            }
-
-            // --- Chat Behavior ---
-            item {
-                SectionHeader(
-                    title = "Chat Behavior",
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.KeyboardAlt,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    },
-                )
-            }
-            item {
                 SliderSettingItem(
                     title = "Initial messages",
                     subtitle = "Load ${uiState.initialMessages} messages per session",
                     value = uiState.initialMessages.toFloat(),
                     valueRange = 25f..200f,
                     onValueChange = { onSetInitialMessages(it.toInt()) },
-                )
-            }
-            item {
-                SwitchSettingItem(
-                    title = "Confirm send",
-                    subtitle = "Show confirmation before sending messages",
-                    checked = uiState.confirmSend,
-                    onCheckedChange = onSetConfirmSend,
-                )
-            }
-            item {
-                SwitchSettingItem(
-                    title = "Haptic feedback",
-                    subtitle = "Vibrate on key interactions",
-                    checked = uiState.hapticFeedback,
-                    onCheckedChange = onSetHapticFeedback,
-                )
-            }
-            item {
-                SwitchSettingItem(
-                    title = "Keep screen on",
-                    subtitle = "Keep screen awake while chatting",
-                    checked = uiState.keepScreenOn,
-                    onCheckedChange = onSetKeepScreenOn,
                 )
             }
 
@@ -394,24 +297,6 @@ fun SettingsScreen(
                     onCheckedChange = onSetImageCompress,
                 )
             }
-            item {
-                SliderSettingItem(
-                    title = "Max image side",
-                    subtitle = "${uiState.imageMaxSide}px maximum dimension",
-                    value = uiState.imageMaxSide.toFloat(),
-                    valueRange = 720f..4096f,
-                    onValueChange = { onSetImageMaxSide(it.toInt()) },
-                )
-            }
-            item {
-                SliderSettingItem(
-                    title = "WebP quality",
-                    subtitle = "${uiState.imageWebPQuality}% compression quality",
-                    value = uiState.imageWebPQuality.toFloat(),
-                    valueRange = 40f..80f,
-                    onValueChange = { onSetImageWebPQuality(it.toInt()) },
-                )
-            }
 
             // --- Notifications ---
             item {
@@ -433,38 +318,6 @@ fun SettingsScreen(
                     subtitle = "Receive notifications for session events",
                     checked = uiState.notificationsEnabled,
                     onCheckedChange = onSetNotificationsEnabled,
-                )
-            }
-            item {
-                SwitchSettingItem(
-                    title = "Silent mode",
-                    subtitle = "Mute notification sounds",
-                    checked = uiState.notificationsSilent,
-                    onCheckedChange = onSetNotificationsSilent,
-                )
-            }
-
-            // --- Terminal ---
-            item {
-                SectionHeader(
-                    title = "Terminal",
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.Terminal,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    },
-                )
-            }
-            item {
-                SliderSettingItem(
-                    title = "Font size",
-                    subtitle = "${uiState.terminalFontSize}sp",
-                    value = uiState.terminalFontSize.toFloat(),
-                    valueRange = 6f..20f,
-                    onValueChange = { onSetTerminalFontSize(it.toInt()) },
                 )
             }
 

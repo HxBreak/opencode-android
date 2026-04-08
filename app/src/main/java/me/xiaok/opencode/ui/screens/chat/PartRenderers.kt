@@ -57,6 +57,65 @@ import me.xiaok.opencode.ui.screens.tooldetail.CachedToolData
 import me.xiaok.opencode.ui.screens.tooldetail.ToolDetailCache
 
 // ---------------------------------------------------------------------------
+// Context tool grouping constants
+// ---------------------------------------------------------------------------
+
+/** Tools that should be hidden from the chat stream entirely. */
+internal val HIDDEN_TOOLS = setOf("todowrite")
+
+/** Context-gathering tools eligible for grouping when consecutive. */
+internal val CONTEXT_GROUP_TOOLS = setOf("read", "glob", "grep", "list", "find")
+
+// ---------------------------------------------------------------------------
+// Part grouping — consecutive context tools merged into groups
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrapper that allows grouping multiple context tools into a single renderable unit.
+ */
+sealed class GroupedPart {
+    data class Single(val part: Part) : GroupedPart()
+    data class ContextGroup(val tools: List<Part.Tool>) : GroupedPart()
+}
+
+/**
+ * Groups consecutive context-gathering tools (read/glob/grep/list/find) into
+ * [GroupedPart.ContextGroup] wrappers. Non-context tools and other part types
+ * pass through unchanged as [GroupedPart.Single]. Hidden tools (todowrite) are
+ * filtered out entirely.
+ *
+ * Mimics the web frontend's `groupParts()` in message-part.tsx.
+ */
+fun groupParts(parts: List<Part>): List<GroupedPart> {
+    val result = mutableListOf<GroupedPart>()
+    var currentGroup = mutableListOf<Part.Tool>()
+
+    fun flushGroup() {
+        if (currentGroup.size >= 2) {
+            result += GroupedPart.ContextGroup(currentGroup.toList())
+        } else {
+            // Single tool — render individually
+            currentGroup.forEach { result += GroupedPart.Single(it) }
+        }
+        currentGroup = mutableListOf()
+    }
+
+    for (part in parts) {
+        if (part is Part.Tool && part.tool in HIDDEN_TOOLS) continue // skip hidden
+
+        if (part is Part.Tool && part.tool in CONTEXT_GROUP_TOOLS) {
+            currentGroup += part
+        } else {
+            flushGroup()
+            result += GroupedPart.Single(part)
+        }
+    }
+    flushGroup()
+
+    return result
+}
+
+// ---------------------------------------------------------------------------
 // Part renderer dispatcher
 // ---------------------------------------------------------------------------
 
@@ -105,6 +164,119 @@ fun PartRenderer(
         is Part.Agent -> AgentPart(part = part, modifier = modifier)
         is Part.Retry -> RetryPart(part = part, modifier = modifier)
         is Part.Compaction -> CompactionPart(part = part, modifier = modifier)
+    }
+}
+
+@Composable
+fun GroupedPartRenderer(
+    grouped: GroupedPart,
+    modifier: Modifier = Modifier,
+    onNavigateToSession: (String) -> Unit = {},
+    childSessionIds: Map<String, String> = emptyMap(),
+    fontSize: String = "medium",
+    onQuestionClick: (() -> Unit)? = null,
+    onNavigateToToolDetail: (String) -> Unit = {},
+    isLatestActiveReasoning: Boolean = false,
+) {
+    when (grouped) {
+        is GroupedPart.Single -> PartRenderer(
+            part = grouped.part,
+            modifier = modifier,
+            onNavigateToSession = onNavigateToSession,
+            childSessionIds = childSessionIds,
+            fontSize = fontSize,
+            onQuestionClick = onQuestionClick,
+            onNavigateToToolDetail = onNavigateToToolDetail,
+            isLatestActiveReasoning = isLatestActiveReasoning,
+        )
+        is GroupedPart.ContextGroup -> ContextToolGroup(
+            tools = grouped.tools,
+            modifier = modifier,
+            onNavigateToToolDetail = onNavigateToToolDetail,
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ContextToolGroup — collapsed card for consecutive read/glob/grep/list/find
+// ---------------------------------------------------------------------------
+
+@Composable
+fun ContextToolGroup(
+    tools: List<Part.Tool>,
+    modifier: Modifier = Modifier,
+    onNavigateToToolDetail: (String) -> Unit = {},
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    val completed = tools.count { it.state.isCompleted }
+    val total = tools.size
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp)),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Column {
+            Surface(
+                onClick = { expanded = !expanded },
+                color = Color.Transparent,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "$total context tools",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "($completed/$total done)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (expanded) "Collapse" else "Expand",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(),
+                exit = shrinkVertically(),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    tools.forEach { tool ->
+                        ToolDetailCache.put(tool.id, CachedToolData(
+                            toolName = tool.tool,
+                            state = tool.state,
+                            childSessionId = tool.state.childSessionId,
+                        ))
+                        ToolCard(
+                            toolName = tool.tool,
+                            state = tool.state,
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                            childSessionId = tool.state.childSessionId,
+                            onNavigateToSession = {},
+                            onClick = { onNavigateToToolDetail(tool.id) },
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+            }
+        }
     }
 }
 
@@ -848,6 +1020,8 @@ private fun PatchPart(
     part: Part.Patch,
     modifier: Modifier = Modifier,
 ) {
+    if (part.diffs.isEmpty()) return
+
     var expanded by remember { mutableStateOf(false) }
 
     Card(

@@ -26,6 +26,9 @@ markdownRenderer = "0.28.0"
 robolectric = "4.14.1"
 kover = "0.9.1"
 javaDiffUtils = "4.15"
+uiautomator = "2.3.0"
+testRunner = "1.6.2"
+testRules = "1.6.1"
 
 [libraries]
 # AndroidX Core
@@ -102,6 +105,11 @@ robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "
 
 # Diff
 java-diff-utils = { group = "io.github.java-diff-utils", name = "java-diff-utils", version.ref = "javaDiffUtils" }
+
+# UIAutomator
+androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "testRunner" }
+androidx-test-rules = { group = "androidx.test", name = "rules", version.ref = "testRules" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

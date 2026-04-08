@@ -393,14 +393,14 @@ object TestFixtures {
         path: String = "src/main/kotlin/App.kt",
         additions: Int = 15,
         deletions: Int = 3,
-        content: String = "+fun newFunction() {}",
-        patch: String = "@@ -1,3 +1,5 @@",
+        before: String = "old code",
+        after: String = "new code",
     ) = FileDiff(
         path = path,
         additions = additions,
         deletions = deletions,
-        content = content,
-        patch = patch,
+        before = before,
+        after = after,
     )
 
     // === ToolState ===

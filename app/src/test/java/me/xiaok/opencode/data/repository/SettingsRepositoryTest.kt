@@ -52,11 +52,6 @@ class SettingsRepositoryTest {
     }
 
     @Test
-    fun `dynamicColor defaults to true`() = runTest {
-        assertEquals(true, repository.dynamicColor.first())
-    }
-
-    @Test
     fun `reconnectMode defaults to normal`() = runTest {
         assertEquals("normal", repository.reconnectMode.first())
     }
@@ -67,63 +62,13 @@ class SettingsRepositoryTest {
     }
 
     @Test
-    fun `compactMessages defaults to false`() = runTest {
-        assertEquals(false, repository.compactMessages.first())
-    }
-
-    @Test
-    fun `codeWordWrap defaults to true`() = runTest {
-        assertEquals(true, repository.codeWordWrap.first())
-    }
-
-    @Test
-    fun `collapseTools defaults to false`() = runTest {
-        assertEquals(false, repository.collapseTools.first())
-    }
-
-    @Test
     fun `initialMessages defaults to 50`() = runTest {
         assertEquals(50, repository.initialMessages.first())
     }
 
     @Test
-    fun `confirmSend defaults to false`() = runTest {
-        assertEquals(false, repository.confirmSend.first())
-    }
-
-    @Test
-    fun `hapticFeedback defaults to true`() = runTest {
-        assertEquals(true, repository.hapticFeedback.first())
-    }
-
-    @Test
     fun `imageCompress defaults to true`() = runTest {
         assertEquals(true, repository.imageCompress.first())
-    }
-
-    @Test
-    fun `keepScreenOn defaults to false`() = runTest {
-        assertEquals(false, repository.keepScreenOn.first())
-    }
-
-    @Test
-    fun `imageMaxSide defaults to 2048`() = runTest {
-        assertEquals(2048, repository.imageMaxSide.first())
-    }
-
-    @Test
-    fun `imageWebPQuality defaults to 70`() = runTest {
-        assertEquals(70, repository.imageWebPQuality.first())
-    }
-
-    @Test
-    fun `terminalFontSize defaults to 12`() = runTest {
-        assertEquals(12, repository.terminalFontSize.first())
-    }
-
-    @Test
-    fun `notificationsSilent defaults to false`() = runTest {
-        assertEquals(false, repository.notificationsSilent.first())
     }
 
     @Test
@@ -145,12 +90,6 @@ class SettingsRepositoryTest {
     }
 
     @Test
-    fun `setDynamicColor persists and reads back`() = runTest {
-        repository.setDynamicColor(false)
-        assertEquals(false, repository.dynamicColor.first())
-    }
-
-    @Test
     fun `setReconnectMode persists and reads back`() = runTest {
         repository.setReconnectMode("aggressive")
         assertEquals("aggressive", repository.reconnectMode.first())
@@ -163,75 +102,15 @@ class SettingsRepositoryTest {
     }
 
     @Test
-    fun `setCompactMessages persists and reads back`() = runTest {
-        repository.setCompactMessages(true)
-        assertEquals(true, repository.compactMessages.first())
-    }
-
-    @Test
-    fun `setCodeWordWrap persists and reads back`() = runTest {
-        repository.setCodeWordWrap(false)
-        assertEquals(false, repository.codeWordWrap.first())
-    }
-
-    @Test
-    fun `setCollapseTools persists and reads back`() = runTest {
-        repository.setCollapseTools(true)
-        assertEquals(true, repository.collapseTools.first())
-    }
-
-    @Test
     fun `setInitialMessages persists and reads back`() = runTest {
         repository.setInitialMessages(100)
         assertEquals(100, repository.initialMessages.first())
     }
 
     @Test
-    fun `setConfirmSend persists and reads back`() = runTest {
-        repository.setConfirmSend(true)
-        assertEquals(true, repository.confirmSend.first())
-    }
-
-    @Test
-    fun `setHapticFeedback persists and reads back`() = runTest {
-        repository.setHapticFeedback(false)
-        assertEquals(false, repository.hapticFeedback.first())
-    }
-
-    @Test
     fun `setImageCompress persists and reads back`() = runTest {
         repository.setImageCompress(false)
         assertEquals(false, repository.imageCompress.first())
-    }
-
-    @Test
-    fun `setKeepScreenOn persists and reads back`() = runTest {
-        repository.setKeepScreenOn(true)
-        assertEquals(true, repository.keepScreenOn.first())
-    }
-
-    @Test
-    fun `setImageMaxSide persists and reads back`() = runTest {
-        repository.setImageMaxSide(4096)
-        assertEquals(4096, repository.imageMaxSide.first())
-    }
-
-    @Test
-    fun `setImageWebPQuality persists and reads back`() = runTest {
-        repository.setImageWebPQuality(90)
-        assertEquals(90, repository.imageWebPQuality.first())
-    }
-
-    @Test
-    fun `setTerminalFontSize persists and reads back`() = runTest {
-        repository.setTerminalFontSize(16)
-        assertEquals(16, repository.terminalFontSize.first())
-    }
-
-    @Test
-    fun `setNotificationsSilent persists and reads back`() = runTest {
-        repository.setNotificationsSilent(true)
-        assertEquals(true, repository.notificationsSilent.first())
     }
 
     @Test

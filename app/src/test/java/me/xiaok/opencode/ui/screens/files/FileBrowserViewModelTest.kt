@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonObject
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.EventReducer
 import me.xiaok.opencode.data.repository.ServerRepository
+import me.xiaok.opencode.domain.model.FileContent
 import me.xiaok.opencode.domain.model.Project
 import me.xiaok.opencode.domain.model.ServerConnection
 import me.xiaok.opencode.fixtures.TestFixtures
@@ -108,7 +109,7 @@ class FileBrowserViewModelTest {
         coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
         coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
         coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
-        coEvery { api.getFileContent(server, "src/App.kt", workspace = null, directory = null) } returns "fun main() {}"
+        coEvery { api.getFileContent(server, "src/App.kt", workspace = null, directory = null) } returns FileContent(content = "fun main() {}")
 
         val vm = createViewModel()
         val collectJob = launch { vm.uiState.collect {} }

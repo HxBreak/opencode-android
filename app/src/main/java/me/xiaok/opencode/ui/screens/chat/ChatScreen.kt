@@ -93,6 +93,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import kotlinx.coroutines.launch
 import me.xiaok.opencode.domain.model.BuiltInCommand
+import me.xiaok.opencode.domain.model.BuiltInCommands
 import me.xiaok.opencode.domain.model.Message
 import me.xiaok.opencode.domain.model.MentionItem
 import me.xiaok.opencode.domain.model.ModelRef
@@ -607,8 +608,21 @@ fun ChatScreen(
                     onReconcileMentions(newText)
                 },
                 onSend = {
-                    onSendMessage(inputText)
-                    inputText = ""
+                    val trimmed = inputText.trimStart()
+                    if (trimmed.startsWith("/") && !trimmed.contains(" ")) {
+                        val commandName = trimmed.removePrefix("/")
+                        val cmd = BuiltInCommands.match(commandName)
+                        if (cmd != null) {
+                            onBuiltInCommand(cmd)
+                            inputText = ""
+                        } else {
+                            onSendMessage(inputText)
+                            inputText = ""
+                        }
+                    } else {
+                        onSendMessage(inputText)
+                        inputText = ""
+                    }
                 },
                 sessionStatus = uiState.sessionStatus,
                 isSending = uiState.isSending,
@@ -995,13 +1009,15 @@ private fun AssistantMessageBubble(
             Spacer(modifier = Modifier.height(4.dp))
         }
 
-        // Parts
-        parts.forEach { part ->
-            PartRenderer(
-                part = part,
+        // Parts — group consecutive context tools
+        val groupedParts = remember(parts) { groupParts(parts) }
+        groupedParts.forEach { grouped ->
+            GroupedPartRenderer(
+                grouped = grouped,
                 onNavigateToSession = onNavigateToSession,
                 childSessionIds = childSessionIds,
                 fontSize = fontSize,
+                onQuestionClick = onQuestionClick,
                 onNavigateToToolDetail = onNavigateToToolDetail,
                 isLatestActiveReasoning = isLatestActiveReasoning,
             )
