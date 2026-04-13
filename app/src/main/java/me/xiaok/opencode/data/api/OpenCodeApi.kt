@@ -13,6 +13,8 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.xiaok.opencode.domain.model.*
 import javax.inject.Inject
@@ -271,14 +273,38 @@ class OpenCodeApi @Inject constructor(
 
     // === Session Status ===
 
+    /**
+     * Retrieve the current status of all sessions.
+     *
+     * Server returns `Record<sessionId, SessionStatus.Info>` where each value is
+     * a JSON object like `{"type":"busy"}` or `{"type":"retry","attempt":1,"message":"...","next":123}`.
+     */
     suspend fun getSessionStatuses(
         conn: ServerConnection,
         directory: String? = null,
-    ): Map<String, String> {
-        return client.get(conn.buildUrl("/session/status")) {
+    ): Map<String, SessionStatus> {
+        val response: JsonObject = client.get(conn.buildUrl("/session/status")) {
             withAuth(conn)
             directory?.let { parameter("directory", it) }
         }.body()
+        return response.mapValues { (_, element) ->
+            parseSessionStatus(element)
+        }
+    }
+
+    private fun parseSessionStatus(element: JsonElement): SessionStatus {
+        val obj = element.jsonObject
+        val typeStr = obj["type"]?.jsonPrimitive?.content ?: return SessionStatus.Idle
+        return when (typeStr.lowercase()) {
+            "idle" -> SessionStatus.Idle
+            "busy" -> SessionStatus.Busy
+            "retry" -> SessionStatus.Retry(
+                attempt = obj["attempt"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                message = obj["message"]?.jsonPrimitive?.content ?: "",
+                next = obj["next"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+            )
+            else -> SessionStatus.Idle
+        }
     }
 
     // === Project ===
@@ -604,19 +630,22 @@ class OpenCodeApi @Inject constructor(
     suspend fun summarizeSession(
         conn: ServerConnection,
         sessionId: String,
-        providerId: String? = null,
-        modelId: String? = null,
+        providerId: String,
+        modelId: String,
         directory: String? = null,
     ): Boolean {
+        Log.d(TAG, "summarizeSession: POST /session/$sessionId/summarize provider=$providerId model=$modelId")
         return client.post(conn.buildUrl("/session/$sessionId/summarize")) {
             withAuth(conn)
             withDirectory(directory)
             contentType(ContentType.Application.Json)
-            setBody(buildMap {
-                providerId?.let { put("providerID", it) }
-                modelId?.let { put("modelID", it) }
-            })
-        }.body()
+            setBody(mapOf(
+                "providerID" to providerId,
+                "modelID" to modelId,
+            ))
+        }.body<Boolean>().also { result ->
+            Log.d(TAG, "summarizeSession: result=$result")
+        }
     }
 
     suspend fun unrevertSession(
@@ -703,7 +732,7 @@ class OpenCodeApi @Inject constructor(
         conn: ServerConnection,
         sessionId: String,
         command: String,
-        arguments: String? = null,
+        agent: String,
         directory: String? = null,
     ) {
         client.post(conn.buildUrl("/session/$sessionId/shell")) {
@@ -712,7 +741,7 @@ class OpenCodeApi @Inject constructor(
             contentType(ContentType.Application.Json)
             setBody(buildMap {
                 put("command", command)
-                arguments?.let { put("arguments", it) }
+                put("agent", agent)
             })
         }
     }

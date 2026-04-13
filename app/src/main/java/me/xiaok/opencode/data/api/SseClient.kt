@@ -202,16 +202,22 @@ class SseClient(
                 )
                 "session.status" -> {
                     val sessionId = properties["sessionID"]?.jsonPrimitive?.content ?: return null
-                    // Server sends {"type":"busy"} but SessionStatus is a plain enum
                     val statusObj = properties["status"]?.jsonObject
-                    val statusStr = statusObj?.get("type")?.jsonPrimitive?.content
+                    val typeStr = statusObj?.get("type")?.jsonPrimitive?.content
                         ?: properties["status"]?.jsonPrimitive?.content
                         ?: return null
-                    val status = try {
-                        SessionStatus.valueOf(statusStr.uppercase())
-                    } catch (_: IllegalArgumentException) {
-                        Log.w(TAG, "Unknown session status: $statusStr, defaulting to IDLE")
-                        SessionStatus.IDLE
+                    val status: SessionStatus = when (typeStr.lowercase()) {
+                        "idle" -> SessionStatus.Idle
+                        "busy" -> SessionStatus.Busy
+                        "retry" -> SessionStatus.Retry(
+                            attempt = statusObj?.get("attempt")?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                            message = statusObj?.get("message")?.jsonPrimitive?.content ?: "",
+                            next = statusObj?.get("next")?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+                        )
+                        else -> {
+                            Log.w(TAG, "Unknown session status: $typeStr, defaulting to Idle")
+                            SessionStatus.Idle
+                        }
                     }
                     SseEvent.SessionStatusChanged(sessionId, status)
                 }
