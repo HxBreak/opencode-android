@@ -3,18 +3,11 @@ package me.xiaok.opencode.ui.screens.chat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,12 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Expand
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,15 +44,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.input.VisualTransformation
 import me.xiaok.opencode.domain.model.AgentConfig
 import me.xiaok.opencode.domain.model.BuiltInCommand
 import me.xiaok.opencode.domain.model.BuiltInCommands
@@ -72,10 +61,6 @@ import me.xiaok.opencode.domain.model.MentionItem
 import me.xiaok.opencode.domain.model.ModelRef
 import me.xiaok.opencode.domain.model.Provider
 import me.xiaok.opencode.domain.model.SessionStatus
-
-// ---------------------------------------------------------------------------
-// Chat Input Bar
-// ---------------------------------------------------------------------------
 
 @Composable
 fun ChatInputBar(
@@ -107,26 +92,22 @@ fun ChatInputBar(
     onMentionSelect: (MentionItem, Int, Int) -> Unit = { _, _, _ -> },
     mentionDisplayTexts: Set<String> = emptySet(),
     onExpand: () -> Unit = {},
+    shareDisabled: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val isBusy = sessionStatus != SessionStatus.IDLE || isSending
+    val isBusy = sessionStatus !is SessionStatus.Idle || isSending
     val canSend = (text.isNotBlank() || attachedImages.isNotEmpty()) && !isBusy
 
-    // Detect @ and / triggers from text input using cursor-relative regex
-    // Track cursor position — approximate as text.length for OutlinedTextField (no exposed cursor)
-    // For true cursor tracking, the TextField would need to use TextFieldValue
     val cursorPosition = text.length
     val atDetection = detectAtMention(text, cursorPosition)
     val trimmed = text.trimStart()
-    val isCommandMode = atDetection == null && trimmed.startsWith("/") && trimmed.count { it == '/' } == 1 && !trimmed.contains(" ")
+    val isCommandMode = atDetection == null && trimmed.startsWith("/") && trimmed.count { it == '/' } == 1
 
-    // @ mention popup state
     var showMentionPopup by remember { mutableStateOf(false) }
     var mentionQuery by remember { mutableStateOf("") }
     var mentionStartIndex by remember { mutableStateOf(-1) }
     var fileResults by remember { mutableStateOf<List<String>>(emptyList()) }
 
-    // Sync popup visibility from @ detection
     LaunchedEffect(atDetection) {
         if (atDetection != null) {
             showMentionPopup = true
@@ -137,12 +118,10 @@ fun ChatInputBar(
         }
     }
 
-    // Dismiss mention popup if command mode activates
     LaunchedEffect(isCommandMode) {
         if (isCommandMode) showMentionPopup = false
     }
 
-    // Fetch file results + filter agents when @ popup is active
     val filteredAgents = if (atDetection != null) {
         val q = atDetection.query
         if (q.isBlank()) {
@@ -160,10 +139,12 @@ fun ChatInputBar(
         }
     }
 
-    // Filter commands synchronously from text — no intermediate state
     val commandQuery = if (isCommandMode) text.trimStart().removePrefix("/").trim() else ""
     val filteredBuiltin = if (!isCommandMode) emptyList()
         else BuiltInCommands.filter(commandQuery)
+            .filter { cmd ->
+                if (shareDisabled) cmd.id !in listOf("share", "unshare") else true
+            }
     val filteredServerCommands = if (!isCommandMode) emptyList()
         else if (commandQuery.isBlank()) commands
         else commands.filter {
@@ -177,7 +158,6 @@ fun ChatInputBar(
         shadowElevation = 8.dp,
     ) {
         Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
-            // 1. Status row
             StatusRow(
                 status = sessionStatus,
                 contextUsagePercent = contextUsagePercent,
@@ -188,7 +168,6 @@ fun ChatInputBar(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // 2. Selector row
             SelectorRow(
                 agents = agents,
                 selectedAgent = selectedAgent,
@@ -203,7 +182,6 @@ fun ChatInputBar(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // 3. Image attachment previews
             if (attachedImages.isNotEmpty()) {
                 ImagePreviewRow(
                     images = attachedImages,
@@ -212,7 +190,6 @@ fun ChatInputBar(
                 Spacer(modifier = Modifier.height(6.dp))
             }
 
-            // 3.5 Command suggestions (above input row)
             AnimatedVisibility(
                 visible = hasAnyCommands,
                 enter = expandVertically(),
@@ -228,7 +205,6 @@ fun ChatInputBar(
                     LazyColumn(
                         modifier = Modifier.padding(vertical = 4.dp),
                     ) {
-                        // Built-in commands first
                         items(filteredBuiltin.size) { index ->
                             val cmd = filteredBuiltin[index]
                             Column(
@@ -276,7 +252,6 @@ fun ChatInputBar(
                             }
                         }
 
-                        // Separator between built-in and server commands
                         if (filteredBuiltin.isNotEmpty() && filteredServerCommands.isNotEmpty()) {
                             item {
                                 HorizontalDivider(
@@ -286,7 +261,6 @@ fun ChatInputBar(
                             }
                         }
 
-                        // Server commands
                         items(filteredServerCommands.size) { index ->
                             val cmd = filteredServerCommands[index]
                             Column(
@@ -321,7 +295,6 @@ fun ChatInputBar(
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
-            // 3.6 @ Mention popup (agents + files) — above input row
             AnimatedVisibility(
                 visible = showMentionPopup && mentionStartIndex >= 0 && (filteredAgents.isNotEmpty() || fileResults.isNotEmpty()),
                 enter = expandVertically(),
@@ -361,13 +334,11 @@ fun ChatInputBar(
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
-            // 4. Input row
             val isMultiline = text.contains('\n')
             Row(
                 verticalAlignment = Alignment.Bottom,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                // Left button column: expand (when multiline) + attach
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.padding(bottom = 4.dp),
@@ -397,7 +368,7 @@ fun ChatInputBar(
                 OutlinedTextField(
                     value = text,
                     onValueChange = onTextChange,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).testTag("chat_input"),
                     visualTransformation = if (mentionDisplayTexts.isNotEmpty()) {
                         MentionTransformation(mentionDisplayTexts)
                     } else {
@@ -430,6 +401,7 @@ fun ChatInputBar(
                 IconButton(
                     onClick = { if (canSend) onSend() },
                     enabled = canSend,
+                    modifier = Modifier.padding(bottom = 4.dp).testTag("btn_send"),
                     colors = IconButtonDefaults.iconButtonColors(
                         containerColor = if (text.trimStart().startsWith("!") && canSend) {
                             Color(0xFFFFA000)
@@ -440,7 +412,6 @@ fun ChatInputBar(
                         },
                         disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     ),
-                    modifier = Modifier.padding(bottom = 4.dp),
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,
@@ -456,10 +427,6 @@ fun ChatInputBar(
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Image preview row
-// ---------------------------------------------------------------------------
 
 @Composable
 private fun ImagePreviewRow(
@@ -485,7 +452,6 @@ private fun ImagePreviewRow(
                         .clip(RoundedCornerShape(8.dp)),
                 )
 
-                // Remove button
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -505,499 +471,4 @@ private fun ImagePreviewRow(
             }
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Status row — working state pulse + context usage + turns + tokens + cost
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun StatusRow(
-    status: SessionStatus,
-    contextUsagePercent: Int,
-    totalTokens: Long,
-    totalCost: Double,
-    conversationTurns: Int,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Status indicator (only show when busy/retrying)
-        when (status) {
-            SessionStatus.BUSY -> {
-                PulsingDot(color = Color(0xFF4CAF50))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Working",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.SemiBold,
-                    ),
-                    color = Color(0xFF4CAF50),
-                )
-            }
-            SessionStatus.RETRY -> {
-                PulsingDot(color = Color(0xFFFFA000))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Retrying",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.SemiBold,
-                    ),
-                    color = Color(0xFFFFA000),
-                )
-            }
-            SessionStatus.IDLE -> { /* Don't show idle status */ }
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        // Conversation turns
-        if (conversationTurns > 0) {
-            Text(
-                text = "$conversationTurns turns",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-        }
-
-        // Token count
-        if (totalTokens > 0) {
-            Text(
-                text = formatTokenCount(totalTokens),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (totalCost > 0.0) {
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "$${String.format("%.2f", totalCost)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Spacer(modifier = Modifier.width(10.dp))
-        }
-
-        // Context usage — battery indicator (remaining = 100 - used)
-        if (contextUsagePercent > 0) {
-            val remaining = 100 - contextUsagePercent
-            val batteryColor = when {
-                remaining <= 10 -> MaterialTheme.colorScheme.error
-                remaining <= 30 -> Color(0xFFFFA000)
-                else -> Color(0xFF4CAF50)
-            }
-            ContextBattery(
-                remaining = remaining,
-                color = batteryColor,
-            )
-        }
-    }
-}
-
-private fun formatTokenCount(tokens: Long): String {
-    return when {
-        tokens >= 1_000_000 -> String.format("%.1fM", tokens / 1_000_000.0)
-        tokens >= 1_000 -> String.format("%.1fk", tokens / 1_000.0)
-        else -> "$tokens"
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Context battery indicator — battery icon showing remaining context
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun ContextBattery(
-    remaining: Int,
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier,
-    ) {
-        // Battery body
-        Box(
-            modifier = Modifier
-                .size(width = 28.dp, height = 14.dp)
-                .clip(RoundedCornerShape(3.dp))
-                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
-                .padding(1.5.dp),
-        ) {
-            // Fill bar — width proportional to remaining
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(remaining / 100f)
-                    .height(11.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(color),
-            )
-        }
-        // Battery tip (positive terminal nub)
-        Box(
-            modifier = Modifier
-                .size(width = 2.dp, height = 6.dp)
-                .clip(RoundedCornerShape(topEndPercent = 50, bottomEndPercent = 50))
-                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Selector row — Agent / Model / Variant chips
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun SelectorRow(
-    agents: List<AgentConfig>,
-    selectedAgent: String?,
-    onAgentSelected: (String?) -> Unit,
-    providers: List<Provider>,
-    selectedModel: ModelRef?,
-    onModelSelected: (ModelRef?) -> Unit,
-    variants: List<String>,
-    selectedVariant: String?,
-    onVariantSelected: (String?) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Agent selector
-        val visibleAgents = remember(agents) {
-            agents.filter { !it.hidden && it.mode != "subagent" }
-        }
-        SelectorChip(
-            label = selectedAgent ?: visibleAgents.firstOrNull()?.name ?: "Agent",
-            items = visibleAgents.map { it.name },
-            selectedItem = selectedAgent,
-            onSelect = onAgentSelected,
-            modifier = Modifier.weight(1f),
-        )
-
-        // Model selector — opens grouped model picker dialog
-        val allModels = remember(providers) {
-            providers.flatMap { provider ->
-                provider.models.entries.map { (modelId, model) ->
-                    Triple(provider.id, modelId, model.name.ifEmpty { modelId })
-                }
-            }
-        }
-
-        val modelLabel = selectedModel?.let { ref ->
-            val provider = providers.find { it.id == ref.providerID }
-            val modelEntry = allModels.find { it.first == ref.providerID && it.second == ref.modelID }
-            if (provider != null && modelEntry != null) {
-                "${modelEntry.third} · ${provider.name}"
-            } else {
-                "${ref.modelID} · ${ref.providerID}"
-            }
-        } ?: allModels.firstOrNull()?.let { entry ->
-            val provider = providers.find { it.id == entry.first }
-            if (provider != null) "${entry.third} · ${provider.name}" else entry.third
-        } ?: "Model"
-
-        var showModelPicker by remember { mutableStateOf(false) }
-
-        ModelSelectorChip(
-            label = modelLabel,
-            selectedModel = selectedModel,
-            onClick = { showModelPicker = true },
-            modifier = Modifier.weight(1f),
-        )
-
-        if (showModelPicker) {
-            ModelPickerDialog(
-                providers = providers,
-                selectedModel = selectedModel,
-                onModelSelected = onModelSelected,
-                onDismiss = { showModelPicker = false },
-            )
-        }
-
-        // Variant selector — cycles through available variants (only when model has variants)
-        if (variants.isNotEmpty()) {
-            VariantChip(
-                variants = variants,
-                selectedVariant = selectedVariant,
-                onVariantSelected = onVariantSelected,
-            )
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Selector chip — compact dropdown button
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun SelectorChip(
-    label: String,
-    items: List<String>,
-    selectedItem: String?,
-    onSelect: (String?) -> Unit,
-    modifier: Modifier = Modifier,
-    displayNames: List<String> = items,
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Box(modifier = modifier) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = if (selectedItem != null) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerHigh
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Min),
-        ) {
-            Row(
-                modifier = Modifier
-                    .clickable { expanded = true }
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = if (selectedItem != null) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                Icon(
-                    imageVector = Icons.Default.ArrowDropDown,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.widthIn(max = 220.dp),
-        ) {
-            items.forEachIndexed { index, item ->
-                val displayName = displayNames.getOrElse(index) { item }
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = displayName,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = if (item == selectedItem) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    onClick = {
-                        onSelect(item)
-                        expanded = false
-                    },
-                )
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Model selector chip — opens grouped ModelPickerDialog
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun ModelSelectorChip(
-    label: String,
-    selectedModel: ModelRef?,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = if (selectedModel != null) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        },
-        modifier = modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min),
-    ) {
-        Row(
-            modifier = Modifier
-                .clickable(onClick = onClick)
-                .padding(horizontal = 10.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = if (selectedModel != null) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.weight(1f),
-            )
-            Icon(
-                imageVector = Icons.Default.ArrowDropDown,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Variant chip — cycles through fast/think/agentic on tap
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun VariantChip(
-    variants: List<String>,
-    selectedVariant: String?,
-    onVariantSelected: (String?) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val displayText = selectedVariant?.replaceFirstChar { it.uppercase() }
-
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = if (selectedVariant != null) {
-            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        },
-        modifier = modifier,
-    ) {
-        Row(
-            modifier = Modifier
-                .clickable {
-                    if (variants.isEmpty()) return@clickable
-                    if (selectedVariant == null) {
-                        onVariantSelected(variants.first())
-                    } else {
-                        val currentIndex = variants.indexOf(selectedVariant)
-                        if (currentIndex >= 0 && currentIndex < variants.lastIndex) {
-                            onVariantSelected(variants[currentIndex + 1])
-                        } else {
-                            // Cycled through all → back to null (auto)
-                            onVariantSelected(null)
-                        }
-                    }
-                }
-                .padding(horizontal = 10.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Default.Speed,
-                contentDescription = null,
-                modifier = Modifier.size(12.dp),
-                tint = if (selectedVariant != null) {
-                    MaterialTheme.colorScheme.onSecondaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = displayText ?: "Variant",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (selectedVariant != null) {
-                    MaterialTheme.colorScheme.onSecondaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Status indicators
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun StatusDot(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .size(6.dp)
-            .clip(CircleShape)
-            .background(color),
-    )
-}
-
-@Composable
-private fun PulsingDot(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "pulseAlpha",
-    )
-
-    Box(
-        modifier = modifier
-            .size(6.dp)
-            .clip(CircleShape)
-            .background(color.copy(alpha = pulseAlpha)),
-    )
-}
-
-// ---------------------------------------------------------------------------
-// @ Mention detection — matches cursor-relative @ pattern anywhere in text
-// ---------------------------------------------------------------------------
-
-/**
- * Result of detecting an @ mention trigger in the text.
- * @param startIndex The index of the '@' character in the text
- * @param query The search query after the '@' (may be empty)
- */
-data class AtDetection(
-    val startIndex: Int,
-    val query: String,
-)
-
-/**
- * Detects an @ mention trigger at the start of the text.
- * Only matches when the text starts with '@' (optionally preceded by whitespace-trimmed input).
- * Returns null if '@' is not the first character or if a space follows the '@query'.
- */
-fun detectAtMention(text: String, cursorPosition: Int): AtDetection? {
-    if (cursorPosition <= 0 || cursorPosition > text.length) return null
-    val trimmed = text.trimStart()
-    if (!trimmed.startsWith("@")) return null
-    // Compute the offset caused by trimStart
-    val trimOffset = text.length - trimmed.length
-    val textBeforeCursor = text.substring(0, cursorPosition)
-    val match = Regex("""@(\S*)$""").find(textBeforeCursor) ?: return null
-    return AtDetection(
-        startIndex = match.range.first,
-        query = match.groupValues[1],
-    )
 }
