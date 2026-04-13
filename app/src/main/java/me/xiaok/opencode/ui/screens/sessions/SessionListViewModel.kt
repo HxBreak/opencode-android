@@ -66,7 +66,6 @@ class SessionListViewModel @Inject constructor(
     private val _selectedSessions = MutableStateFlow<Set<String>>(emptySet())
     private val _isSelectionMode = MutableStateFlow(false)
     private val _archiveFilter = MutableStateFlow<SessionArchiveFilter>(SessionArchiveFilter.Active)
-    private val _childrenSessions = MutableStateFlow<Map<String, List<Session>>>(emptyMap())
     private val _searchQuery = MutableStateFlow("")
 
     /**
@@ -358,22 +357,6 @@ class SessionListViewModel @Inject constructor(
 
     fun selectAll() {
         _selectedSessions.value = uiState.value.sessions.map { it.id }.toSet()
-    }
-
-    fun loadSessionChildren(sessionId: String) {
-        viewModelScope.launch {
-            try {
-                val server = serverRepository.getServer(serverId) ?: return@launch
-                val children = api.getSessionChildren(server, sessionId, directory = directory)
-                _childrenSessions.value = _childrenSessions.value.toMutableMap().apply {
-                    put(sessionId, children)
-                }
-            } catch (_: Exception) { }
-        }
-    }
-
-    fun getSessionChildren(sessionId: String): List<Session> {
-        return _childrenSessions.value[sessionId] ?: emptyList()
     }
 
     fun deletePty(ptyId: String) {
