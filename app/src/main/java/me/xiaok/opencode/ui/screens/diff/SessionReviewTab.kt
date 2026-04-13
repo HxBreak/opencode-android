@@ -38,8 +38,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import me.xiaok.opencode.domain.model.FileDiff
 
@@ -207,29 +211,33 @@ private fun FileDiffAccordionItem(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 // File path info
-                Column(modifier = Modifier.weight(1f)) {
-                    val fileName = fileDiff.path.substringAfterLast('/')
-                    val dirPath = fileDiff.path.substringBeforeLast('/', "")
+                val fileName = fileDiff.path.substringAfterLast('/')
+                val dirPath = fileDiff.path.substringBeforeLast('/', "")
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = buildAnnotatedString {
                         if (dirPath.isNotEmpty()) {
-                            Text(
-                                text = "$dirPath/",
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = FontFamily.Monospace,
-                                ),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            )
+                            withStyle(
+                                SpanStyle(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                )
+                            ) {
+                                append("$dirPath/")
+                            }
                         }
-                        Text(
-                            text = fileName,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Medium,
-                            ),
-                        )
-                    }
-                }
+                        withStyle(
+                            SpanStyle(fontWeight = FontWeight.Medium)
+                        ) {
+                            append(fileName)
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
 
                 // Status badge
                 FileStatusBadge(status = fileDiff.status)

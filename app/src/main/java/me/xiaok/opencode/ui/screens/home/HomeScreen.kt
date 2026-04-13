@@ -60,6 +60,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -180,7 +181,10 @@ fun HomeScreen(
                     )
                 },
                 actions = {
-                    IconButton(onClick = { showAddDialog = true }) {
+                    IconButton(
+                        onClick = { showAddDialog = true },
+                        modifier = Modifier.testTag("fab_add_server"),
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Add server",
@@ -352,6 +356,7 @@ private fun ServerCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .testTag("server_card")
             .combinedClickable(
                 onClick = onNavigateToProjects,
                 onLongClick = onLongClick,
@@ -417,7 +422,7 @@ private fun ServerCard(
             Box {
                 IconButton(
                     onClick = { showMenu = true },
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(32.dp).testTag("server_card_more"),
                 ) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,

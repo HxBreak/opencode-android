@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.xiaok.opencode.data.api.OpenCodeApi
+import me.xiaok.opencode.data.repository.MetadataCache
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.domain.model.ProviderList
 import me.xiaok.opencode.utils.ErrorCollector
@@ -35,6 +36,7 @@ data class ProvidersUiState(
 class ServerProvidersViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val api: OpenCodeApi,
+    private val metadataCache: MetadataCache,
     private val serverRepository: ServerRepository,
     private val errorCollector: ErrorCollector,
 ) : ViewModel() {
@@ -86,13 +88,17 @@ class ServerProvidersViewModel @Inject constructor(
         loadProviders()
     }
 
-    fun loadProviders() {
+    fun loadProviders(forceRefresh: Boolean = false) {
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
-                val providers = api.getProviders(server)
+                val providers = if (forceRefresh) {
+                    metadataCache.refreshProviders(serverId, server)
+                } else {
+                    metadataCache.getProviders(serverId, server)
+                }
                 _providers.value = providers
                 _isLoading.value = false
 
@@ -119,8 +125,7 @@ class ServerProvidersViewModel @Inject constructor(
                 val server = serverRepository.getServer(serverId) ?: return@launch
                 val credentials = JsonObject(mapOf("apiKey" to JsonPrimitive(apiKey)))
                 api.setAuth(server, providerId, credentials)
-                // Reload providers to reflect the new connected state
-                loadProviders()
+                loadProviders(forceRefresh = true)
             } catch (e: Exception) {
                 errorCollector.logError(e, "ServerProviders")
                 _error.value = e.message
@@ -133,7 +138,7 @@ class ServerProvidersViewModel @Inject constructor(
             try {
                 val server = serverRepository.getServer(serverId) ?: return@launch
                 api.removeAuth(server, providerId)
-                loadProviders()
+                loadProviders(forceRefresh = true)
             } catch (e: Exception) {
                 errorCollector.logError(e, "ServerProviders")
                 _error.value = e.message
@@ -164,7 +169,7 @@ class ServerProvidersViewModel @Inject constructor(
                 api.completeOAuth(server, providerId, methodIndex, code)
                 _oauthUrl.value = null
                 _oauthInstructions.value = null
-                loadProviders()
+                loadProviders(forceRefresh = true)
             } catch (e: Exception) {
                 errorCollector.logError(e, "ServerProviders")
                 _error.value = e.message

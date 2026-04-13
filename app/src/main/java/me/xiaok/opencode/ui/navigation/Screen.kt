@@ -97,9 +97,6 @@ sealed class Screen {
     ) : Screen()
 
     @Serializable
-    data object IconPreview : Screen()
-
-    @Serializable
     data object ErrorLog : Screen()
 
     @Serializable

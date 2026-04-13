@@ -23,7 +23,6 @@ import me.xiaok.opencode.ui.screens.errorlog.ErrorLogRoute
 import me.xiaok.opencode.ui.screens.experimental.ExperimentalRoute
 import me.xiaok.opencode.ui.screens.files.FileBrowserRoute
 import me.xiaok.opencode.ui.screens.home.HomeRoute
-import me.xiaok.opencode.ui.screens.iconpreview.IconPreviewRoute
 import me.xiaok.opencode.ui.screens.projects.ProjectListRoute
 import me.xiaok.opencode.ui.screens.server.McpManagementRoute
 import me.xiaok.opencode.ui.screens.server.ServerModelFilterRoute
@@ -282,9 +281,6 @@ fun OpenCodeNavGraph(
         ) {
             SettingsRoute(
                 onNavigateBack = { navController.popBackStack() },
-                onNavigateToIconPreview = {
-                    navController.navigate(Screen.IconPreview)
-                },
                 onNavigateToErrorLog = {
                     navController.navigate(Screen.ErrorLog)
                 },
@@ -309,13 +305,6 @@ fun OpenCodeNavGraph(
         // === Session Diff (standalone page — proactive API fetch) ===
         composable<Screen.SessionDiff> {
             SessionDiffRoute(
-                onNavigateBack = { navController.popBackStack() },
-            )
-        }
-
-        // === Icon Preview (Debug) ===
-        composable<Screen.IconPreview> {
-            IconPreviewRoute(
                 onNavigateBack = { navController.popBackStack() },
             )
         }

@@ -64,6 +64,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -235,6 +236,7 @@ fun ProjectListScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = onOpenDirectoryBrowser,
+                modifier = Modifier.testTag("fab_open_project"),
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ) {
@@ -662,6 +664,7 @@ private fun ProjectRow(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .testTag("project_card")
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,

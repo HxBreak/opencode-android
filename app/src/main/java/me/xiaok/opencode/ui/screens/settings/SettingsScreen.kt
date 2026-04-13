@@ -55,7 +55,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 @Composable
 fun SettingsRoute(
     onNavigateBack: () -> Unit,
-    onNavigateToIconPreview: () -> Unit = {},
     onNavigateToErrorLog: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -64,7 +63,6 @@ fun SettingsRoute(
     SettingsScreen(
         uiState = uiState,
         onNavigateBack = onNavigateBack,
-        onNavigateToIconPreview = onNavigateToIconPreview,
         onNavigateToErrorLog = onNavigateToErrorLog,
         onSetTheme = { viewModel.setTheme(it) },
         onSetReconnectMode = { viewModel.setReconnectMode(it) },
@@ -85,7 +83,6 @@ fun SettingsRoute(
 fun SettingsScreen(
     uiState: SettingsUiState,
     onNavigateBack: () -> Unit,
-    onNavigateToIconPreview: () -> Unit = {},
     onNavigateToErrorLog: () -> Unit = {},
     onSetTheme: (String) -> Unit,
     onSetReconnectMode: (String) -> Unit,
@@ -234,13 +231,6 @@ fun SettingsScreen(
                     title = "Theme",
                     subtitle = themeLabel(uiState.theme),
                     onClick = { showThemeDialog = true },
-                )
-            }
-            item {
-                ClickableSettingItem(
-                    title = "Icon preview",
-                    subtitle = "Preview and select AI-generated app icons",
-                    onClick = onNavigateToIconPreview,
                 )
             }
 

@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import me.xiaok.opencode.data.repository.CacheRepository
+import me.xiaok.opencode.data.repository.MetadataCache
 import me.xiaok.opencode.data.repository.SettingsRepository
 import javax.inject.Inject
 
@@ -25,6 +26,7 @@ data class SettingsUiState(
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val cacheRepository: CacheRepository,
+    private val metadataCache: MetadataCache,
 ) : ViewModel() {
 
     val uiState: StateFlow<SettingsUiState> = combine(
@@ -70,6 +72,9 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun clearCacheData() {
-        viewModelScope.launch { cacheRepository.clearAllCacheData() }
+        viewModelScope.launch {
+            cacheRepository.clearAllCacheData()
+            metadataCache.invalidateAll()
+        }
     }
 }
