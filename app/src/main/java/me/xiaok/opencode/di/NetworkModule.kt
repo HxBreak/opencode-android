@@ -38,17 +38,26 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(): OkHttpClient {
-        val loggingInterceptor = HttpLoggingInterceptor { message ->
-            Log.d("OkHttp", message)
-        }.apply {
-            level = HttpLoggingInterceptor.Level.BODY
-        }
-
         return OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
-            .addInterceptor(loggingInterceptor)
+            .apply {
+                // Only add verbose HTTP logging in debuggable builds.
+                // isLoggable("OkHttp", DEBUG) returns true only when:
+                //   - The process is debuggable (android:debuggable=true in manifest), OR
+                //   - `adb shell setprop log.tag.OkHttp DEBUG` is set
+                // Release builds strip the interceptor entirely via R8 (see proguard-rules.pro).
+                if (Log.isLoggable("OkHttp", Log.DEBUG)) {
+                    addInterceptor(
+                        HttpLoggingInterceptor { message ->
+                            Log.d("OkHttp", message)
+                        }.apply {
+                            level = HttpLoggingInterceptor.Level.BODY
+                        }
+                    )
+                }
+            }
             .build()
     }
 

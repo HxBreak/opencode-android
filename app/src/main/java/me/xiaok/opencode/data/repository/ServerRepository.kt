@@ -32,6 +32,7 @@ class ServerRepository @Inject constructor(
     private val credentialStore: CredentialStore,
     private val cacheRepository: CacheRepository,
     private val settingsRepository: SettingsRepository,
+    private val metadataCache: MetadataCache,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -164,6 +165,9 @@ class ServerRepository @Inject constructor(
         sseClients.remove(serverId)?.disconnect()
         sseJobs.remove(serverId)?.cancel()
         eventReducer.clearForServer(serverId)
+        scope.launch {
+            metadataCache.invalidateServer(serverId)
+        }
         updateConnectionState(serverId, ConnectionState.DISCONNECTED)
         _serverVersions.value = _serverVersions.value.toMutableMap().apply {
             remove(serverId)

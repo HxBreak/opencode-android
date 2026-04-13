@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import me.xiaok.opencode.domain.model.*
+import kotlin.reflect.KClass
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -73,6 +74,13 @@ class EventReducer @Inject constructor(
     private val _sessionErrors = MutableStateFlow<Map<String, String>>(emptyMap())
     /** Map of sessionId → last error message. Cleared when session status changes away from error. */
     val sessionErrors: StateFlow<Map<String, String>> = _sessionErrors.asStateFlow()
+
+    /** Remove a session's error from the map after it has been displayed to the user. */
+    fun clearSessionError(sessionId: String) {
+        _sessionErrors.value = _sessionErrors.value.toMutableMap().apply {
+            remove(sessionId)
+        }
+    }
 
     // === PTY State ===
 
@@ -564,7 +572,7 @@ class EventReducer @Inject constructor(
 
     private fun onSessionIdle(sessionId: String) {
         _sessionStatuses.value = _sessionStatuses.value.toMutableMap().apply {
-            put(sessionId, SessionStatus.IDLE)
+            put(sessionId, SessionStatus.Idle)
         }
     }
 
@@ -639,6 +647,11 @@ class EventReducer @Inject constructor(
      * Parts only in existing are preserved (preserves streaming content).
      * Parts only in incoming are added.
      */
+    private val HIDDEN_PART_TYPES: Set<KClass<out Part>> = setOf(
+        Part.StepStart::class,
+        Part.StepFinish::class,
+    )
+
     private fun mergeParts(existing: List<Part>, incoming: List<Part>): List<Part> {
         val existingById = existing.associateBy { it.id }
         val result = mutableListOf<Part>()
@@ -646,6 +659,7 @@ class EventReducer @Inject constructor(
 
         // First pass: process incoming parts, preferring existing streaming content
         for (part in incoming) {
+            if (part::class in HIDDEN_PART_TYPES) continue
             val existingPart = existingById[part.id]
             if (existingPart != null) {
                 // Merge: prefer the one with more content for streaming text
@@ -665,7 +679,7 @@ class EventReducer @Inject constructor(
 
         // Second pass: add existing parts not in incoming
         for (part in existing) {
-            if (part.id !in seen) {
+            if (part.id !in seen && part::class !in HIDDEN_PART_TYPES) {
                 result.add(part)
             }
         }
@@ -683,6 +697,7 @@ class EventReducer @Inject constructor(
     }
 
     private fun onMessagePartUpdated(part: Part) {
+        if (part::class in HIDDEN_PART_TYPES) return
         // Flush any pending deltas for this part before applying the full update
         flushPendingDeltas()
         val messageId = part.messageId
@@ -777,6 +792,11 @@ class EventReducer @Inject constructor(
         _todos.value = _todos.value.toMutableMap().apply {
             put(sessionId, todoList)
         }
+    }
+
+    /** Public helper to seed todos from cached tool parts (cold-start). */
+    fun updateTodos(sessionId: String, todos: List<Todo>) {
+        onTodoUpdated(sessionId, todos)
     }
 
     private fun onVcsBranchUpdated(branch: String) {

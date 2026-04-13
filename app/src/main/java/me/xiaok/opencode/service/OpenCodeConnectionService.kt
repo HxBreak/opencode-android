@@ -185,7 +185,7 @@ class OpenCodeConnectionService : Service() {
     private suspend fun observeSessionStatuses() {
         eventReducer.sessionStatuses.collect { statuses ->
             statuses.forEach { (sessionId, status) ->
-                if (status == SessionStatus.IDLE && sessionId !in notifiedIdleSessions) {
+                if (status is SessionStatus.Idle && sessionId !in notifiedIdleSessions) {
                     notifiedIdleSessions.add(sessionId)
 
                     val session = eventReducer.sessions.value[sessionId] ?: return@forEach
@@ -202,7 +202,7 @@ class OpenCodeConnectionService : Service() {
             }
 
             // Clean up tracking for sessions that are no longer idle
-            val idleSessions = statuses.filterValues { it == SessionStatus.IDLE }.keys
+            val idleSessions = statuses.filterValues { it is SessionStatus.Idle }.keys
             notifiedIdleSessions.retainAll(idleSessions)
         }
     }

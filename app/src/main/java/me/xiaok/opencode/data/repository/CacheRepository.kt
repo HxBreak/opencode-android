@@ -220,10 +220,8 @@ class CacheRepository @Inject constructor(
                         upsertMessage(serverId, event.message)
                     }
                     is SseEvent.MessageRemoved -> {
-                        scope.launch {
-                            withContext(Dispatchers.IO) {
-                                messageDao.delete(event.messageId)
-                            }
+                        withContext(Dispatchers.IO) {
+                            messageDao.delete(event.messageId)
                         }
                     }
                     is SseEvent.ServerInstanceDisposed -> {
