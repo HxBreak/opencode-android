@@ -22,3 +22,13 @@ app/*.jks
 # Screenshots - keep PNGs, exclude UI dumps
 screenshots/*.txt
 screenshots/*.xml
+
+# E2E test local config (contains server credentials)
+LOCAL_SPEC.md
+
+# Extracted screenshots
+extract_screenshot.md
+scripts/
+
+# Design references
+.stitch/
