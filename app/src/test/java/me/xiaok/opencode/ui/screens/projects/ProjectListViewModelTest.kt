@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
@@ -71,6 +72,7 @@ class ProjectListViewModelTest {
         eventReducer = EventReducer(cacheRepository, testScope)
 
         every { serverRepository.getServer(serverId) } returns testServer
+        every { serverRepository.connectionStates } returns MutableStateFlow(emptyMap<String, ServerRepository.ConnectionState>())
         coEvery { cacheRepository.getSessionViewLogs(any()) } returns emptyMap()
         coEvery { cacheRepository.deleteSessionViewLog(any(), any()) } just Awaits
         coEvery { cacheRepository.deleteSessionViewLogsForServer(any()) } just Awaits

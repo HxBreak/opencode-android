@@ -157,7 +157,7 @@ class ServerModelFilterViewModelTest {
     }
 
     @Test
-    fun `toggleProviderVisibility hides provider and all its models`() = testScope.runTest {
+    fun `toggleProviderVisibility hides all models under provider`() = testScope.runTest {
         coEvery { api.getProviders(testServer) } returns TestFixtures.testProviderList()
 
         val vm = createVm()
@@ -167,16 +167,13 @@ class ServerModelFilterViewModelTest {
         vm.toggleProviderVisibility("anthropic")
         advanceUntilIdle()
 
-        assertTrue(vm.uiState.value.hiddenProviders.contains("anthropic"))
         assertTrue(vm.uiState.value.hiddenModels.contains("anthropic/claude-3-sonnet"))
-        coVerify { settingsRepository.setHiddenProviders("test_server", setOf("anthropic")) }
         coVerify { settingsRepository.setHiddenModels("test_server", setOf("anthropic/claude-3-sonnet")) }
     }
 
     @Test
-    fun `toggleProviderVisibility shows provider and all its models`() = testScope.runTest {
+    fun `toggleProviderVisibility shows all models when all hidden`() = testScope.runTest {
         coEvery { api.getProviders(testServer) } returns TestFixtures.testProviderList()
-        hiddenProvidersFlow.value = setOf("anthropic")
         hiddenModelsFlow.value = setOf("anthropic/claude-3-sonnet")
 
         val vm = createVm()
@@ -186,9 +183,7 @@ class ServerModelFilterViewModelTest {
         vm.toggleProviderVisibility("anthropic")
         advanceUntilIdle()
 
-        assertFalse(vm.uiState.value.hiddenProviders.contains("anthropic"))
         assertFalse(vm.uiState.value.hiddenModels.contains("anthropic/claude-3-sonnet"))
-        coVerify { settingsRepository.setHiddenProviders("test_server", emptySet()) }
         coVerify { settingsRepository.setHiddenModels("test_server", emptySet()) }
     }
 

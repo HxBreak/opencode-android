@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import me.xiaok.opencode.data.local.db.AppDatabase
 import me.xiaok.opencode.data.local.db.entity.MessageEntity
+import me.xiaok.opencode.utils.TimeoutRule
+import org.junit.Rule
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -18,6 +20,9 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
 class MessageDaoTest {
+
+    @get:Rule
+    val timeoutRule = TimeoutRule()
 
     private lateinit var db: AppDatabase
     private lateinit var dao: MessageDao

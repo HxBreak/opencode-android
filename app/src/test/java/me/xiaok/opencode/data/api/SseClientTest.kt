@@ -1,16 +1,17 @@
 package me.xiaok.opencode.data.api
 
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
 import kotlinx.serialization.json.*
 import me.xiaok.opencode.domain.model.*
 import me.xiaok.opencode.fixtures.TestFixtures
+import me.xiaok.opencode.utils.TimeoutRule
+import org.junit.Rule
 import okhttp3.OkHttpClient
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
 /**
  * Unit tests for [SseClient] covering:
@@ -19,9 +20,10 @@ import org.robolectric.annotation.Config
  * - URL building with/without query params
  * - Malformed event handling (invalid JSON, empty data, missing fields, unknown types)
  */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28])
 class SseClientTest {
+
+    @get:Rule
+    val timeoutRule = TimeoutRule()
 
     private lateinit var client: SseClient
     private lateinit var json: Json
@@ -31,6 +33,11 @@ class SseClientTest {
 
     @Before
     fun setup() {
+        mockkStatic(android.util.Log::class)
+        every { android.util.Log.d(any(), any()) } returns 0
+        every { android.util.Log.w(any(), any<String>()) } returns 0
+        every { android.util.Log.e(any(), any(), any()) } returns 0
+
         json = Json {
             ignoreUnknownKeys = true
             encodeDefaults = true
@@ -179,7 +186,7 @@ class SseClientTest {
         assertTrue(result is SseEvent.SessionStatusChanged)
         val event = result as SseEvent.SessionStatusChanged
         assertEquals("ses_123", event.sessionId)
-        assertEquals(SessionStatus.BUSY, event.status)
+        assertEquals(SessionStatus.Busy, event.status)
     }
 
     @Test
@@ -203,7 +210,7 @@ class SseClientTest {
 
         assertNotNull(result)
         val event = result as SseEvent.SessionStatusChanged
-        assertEquals(SessionStatus.IDLE, event.status)
+        assertEquals(SessionStatus.Idle, event.status)
     }
 
     @Test
@@ -397,8 +404,7 @@ class SseClientTest {
     @Test
     fun `permission asked event`() {
         val permJson = json.encodeToJsonElement(PermissionRequest.serializer(), TestFixtures.testPermissionRequest())
-        val props = buildJsonObject { put("permission", permJson) }
-        val result = parseEvent(envelopeJson("permission.asked", props))
+        val result = dispatchEvent("permission.asked", permJson.jsonObject)
 
         assertNotNull(result)
         assertTrue(result is SseEvent.PermissionAsked)
@@ -411,7 +417,7 @@ class SseClientTest {
     fun `permission replied event`() {
         val props = buildJsonObject {
             put("sessionID", "ses_perm")
-            put("id", "req_perm_1")
+            put("requestID", "req_perm_1")
         }
         val result = parseEvent(envelopeJson("permission.replied", props))
 
@@ -425,8 +431,7 @@ class SseClientTest {
     @Test
     fun `question asked event`() {
         val questionJson = json.encodeToJsonElement(QuestionRequest.serializer(), TestFixtures.testQuestionRequest())
-        val props = buildJsonObject { put("question", questionJson) }
-        val result = parseEvent(envelopeJson("question.asked", props))
+        val result = dispatchEvent("question.asked", questionJson.jsonObject)
 
         assertNotNull(result)
         assertTrue(result is SseEvent.QuestionAsked)
@@ -438,7 +443,7 @@ class SseClientTest {
     fun `question replied event`() {
         val props = buildJsonObject {
             put("sessionID", "ses_q")
-            put("id", "req_q_1")
+            put("requestID", "req_q_1")
         }
         val result = parseEvent(envelopeJson("question.replied", props))
 
@@ -453,7 +458,7 @@ class SseClientTest {
     fun `question rejected event`() {
         val props = buildJsonObject {
             put("sessionID", "ses_qr")
-            put("id", "req_qr_1")
+            put("requestID", "req_qr_1")
         }
         val result = parseEvent(envelopeJson("question.rejected", props))
 
@@ -592,9 +597,11 @@ class SseClientTest {
     }
 
     @Test
-    fun `permission asked returns null when permission key missing`() {
-        // properties["permission"]!! throws NPE, caught by try/catch → null
-        assertNull(dispatchEvent("permission.asked", buildJsonObject {}))
+    fun `permission asked returns default PermissionRequest when properties empty`() {
+        // With direct deserialization, empty properties produces a default PermissionRequest
+        val result = dispatchEvent("permission.asked", buildJsonObject {})
+        assertNotNull(result)
+        assertTrue(result is SseEvent.PermissionAsked)
     }
 
     @Test

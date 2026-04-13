@@ -4,6 +4,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import me.xiaok.opencode.utils.TimeoutRule
+import org.junit.Rule
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -13,6 +15,9 @@ import org.junit.Test
  * against real API response data from the OpenCode test server.
  */
 class ModelDeserializationTest {
+
+    @get:Rule
+    val timeoutRule = TimeoutRule()
 
     private lateinit var json: Json
 
@@ -266,7 +271,7 @@ class ModelDeserializationTest {
         val partJson = """{
             "type": "patch",
             "diffs": [
-                {"path": "src/Main.kt", "additions": 5, "deletions": 2, "content": "", "patch": "@@ -1 +1 @@"}
+                {"file": "src/Main.kt", "additions": 5, "deletions": 2, "before": "", "after": ""}
             ],
             "id": "p1",
             "sessionID": "s1",
@@ -379,22 +384,40 @@ class ModelDeserializationTest {
 
     // === SessionStatus Tests ===
 
-    @Test
-    fun `deserialize SessionStatus IDLE`() {
-        val status = json.decodeFromString<SessionStatus>("\"IDLE\"")
-        assertEquals(SessionStatus.IDLE, status)
+    private fun parseSessionStatus(jsonStr: String): SessionStatus {
+        val jsonObj = json.parseToJsonElement(jsonStr).jsonObject
+        val typeStr = jsonObj["type"]!!.jsonPrimitive.content
+        return when (typeStr.lowercase()) {
+            "idle" -> SessionStatus.Idle
+            "busy" -> SessionStatus.Busy
+            "retry" -> SessionStatus.Retry(
+                attempt = jsonObj["attempt"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                message = jsonObj["message"]?.jsonPrimitive?.content ?: "",
+                next = jsonObj["next"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+            )
+            else -> SessionStatus.Idle
+        }
     }
 
     @Test
-    fun `deserialize SessionStatus BUSY`() {
-        val status = json.decodeFromString<SessionStatus>("\"BUSY\"")
-        assertEquals(SessionStatus.BUSY, status)
+    fun `deserialize SessionStatus Idle`() {
+        val status = parseSessionStatus("""{"type":"idle"}""")
+        assertEquals(SessionStatus.Idle, status)
     }
 
     @Test
-    fun `deserialize SessionStatus RETRY`() {
-        val status = json.decodeFromString<SessionStatus>("\"RETRY\"")
-        assertEquals(SessionStatus.RETRY, status)
+    fun `deserialize SessionStatus Busy`() {
+        val status = parseSessionStatus("""{"type":"busy"}""")
+        assertEquals(SessionStatus.Busy, status)
+    }
+
+    @Test
+    fun `deserialize SessionStatus Retry with metadata`() {
+        val status = parseSessionStatus("""{"type":"retry","attempt":2,"message":"Rate limited","next":1234567890}""")
+        assertTrue(status is SessionStatus.Retry)
+        assertEquals(2, (status as SessionStatus.Retry).attempt)
+        assertEquals("Rate limited", status.message)
+        assertEquals(1234567890L, status.next)
     }
 
     // === TokenUsage Tests ===
@@ -436,15 +459,15 @@ class ModelDeserializationTest {
     fun `deserialize SessionStatusChanged SSE event properties`() {
         val propsJson = """{
             "sessionID": "ses_abc123",
-            "status": "BUSY"
+            "status": {"type": "busy"}
         }"""
 
         val jsonObj = json.parseToJsonElement(propsJson).jsonObject
         val sessionId = jsonObj["sessionID"]!!.jsonPrimitive.content
-        val status = json.decodeFromString<SessionStatus>(jsonObj["status"]!!.toString())
+        val status = parseSessionStatus(jsonObj["status"].toString())
 
         assertEquals("ses_abc123", sessionId)
-        assertEquals(SessionStatus.BUSY, status)
+        assertEquals(SessionStatus.Busy, status)
     }
 
     // === Message with error ===

@@ -457,7 +457,7 @@ object TestFixtures {
 
     fun testSseSessionStatusChanged(
         sessionId: String = "ses_test123",
-        status: SessionStatus = SessionStatus.BUSY,
+        status: SessionStatus = SessionStatus.Busy,
     ) = SseEvent.SessionStatusChanged(
         sessionId = sessionId,
         status = status,
@@ -1098,8 +1098,8 @@ object TestFixtures {
         properties = properties,
     )
 
-    // === SessionStatus (enum - no factory needed, use directly) ===
-    // SessionStatus.IDLE, SessionStatus.BUSY, SessionStatus.RETRY
+    // === SessionStatus (sealed class) ===
+    // SessionStatus.Idle, SessionStatus.Busy, SessionStatus.Retry(attempt, message, next)
 
     // === ConfigProviders ===
 

@@ -14,14 +14,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
-import org.junit.After
 import me.xiaok.opencode.domain.model.ServerConnection
+import me.xiaok.opencode.utils.TimeoutRule
+import org.junit.Rule
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.Buffer
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -35,6 +37,9 @@ import org.junit.Test
  * All tests that need [capturedListener] must start collecting first.
  */
 class WsClientTest {
+
+    @get:Rule
+    val timeoutRule = TimeoutRule()
 
     private lateinit var mockWebSocket: WebSocket
     private var capturedListener: WebSocketListener? = null
@@ -69,6 +74,7 @@ class WsClientTest {
     @After
     fun teardown() {
         collectThreads.forEach { it.interrupt() }
+        collectThreads.forEach { it.join(1000) }
         collectThreads.clear()
     }
 

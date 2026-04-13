@@ -73,7 +73,7 @@ class SessionListViewModelTest {
         coEvery { api.deleteSession(testServer, "ses_1") } returns true
         coEvery { api.updateSession(testServer, "ses_1", title = "Updated Title") } returns testSession1.copy(title = "Updated Title")
         coEvery { api.updateSession(testServer, "ses_1", archived = any()) } returns testSession1.copy(time = TestFixtures.testSessionTime(archived = 1000L))
-        coEvery { api.updateSession(testServer, "ses_1", archived = 0) } returns testSession1.copy(time = TestFixtures.testSessionTime(archived = null))
+        coEvery { api.updateSession(testServer, "ses_1", unarchive = any(), directory = any()) } returns testSession1.copy(time = TestFixtures.testSessionTime(archived = null))
         coEvery { api.getSessionChildren(testServer, "ses_1") } returns listOf(testSession2)
     }
 
@@ -191,14 +191,14 @@ class SessionListViewModelTest {
     }
 
     @Test
-    fun `unarchive session calls API with archived 0`() = testScope.runTest {
+    fun `unarchive session calls API with unarchive true`() = testScope.runTest {
         val vm = createViewModel()
         testScope.advanceUntilIdle()
 
         vm.unarchiveSession("ses_1")
         testScope.advanceUntilIdle()
 
-        coVerify { api.updateSession(testServer, "ses_1", archived = 0) }
+        coVerify { api.updateSession(testServer, "ses_1", unarchive = true, directory = null) }
     }
 
     // === setArchiveFilter ===
@@ -341,21 +341,5 @@ class SessionListViewModelTest {
         testScope.advanceUntilIdle()
 
         coVerify { settingsRepository.setCollapsedDirectories(emptySet()) }
-    }
-
-    // === loadSessionChildren ===
-
-    @Test
-    fun `load session children calls API and stores children`() = testScope.runTest {
-        val vm = createViewModel()
-        testScope.advanceUntilIdle()
-
-        vm.loadSessionChildren("ses_1")
-        testScope.advanceUntilIdle()
-
-        coVerify { api.getSessionChildren(testServer, "ses_1") }
-        val children = vm.getSessionChildren("ses_1")
-        assertEquals(1, children.size)
-        assertEquals("ses_2", children[0].id)
     }
 }

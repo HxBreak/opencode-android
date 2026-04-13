@@ -1,11 +1,16 @@
 package me.xiaok.opencode.ui.screens.chat.usecases
 
 import me.xiaok.opencode.domain.model.*
+import me.xiaok.opencode.utils.TimeoutRule
+import org.junit.Rule
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 
 class SessionStatsUseCaseTest {
+
+    @get:Rule
+    val timeoutRule = TimeoutRule()
 
     private lateinit var useCase: SessionStatsUseCase
 

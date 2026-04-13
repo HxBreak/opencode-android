@@ -10,6 +10,8 @@ import kotlinx.coroutines.test.runTest
 import me.xiaok.opencode.domain.model.ChatDraft
 import me.xiaok.opencode.domain.model.ModelRef
 import me.xiaok.opencode.fixtures.TestFixtures
+import me.xiaok.opencode.utils.TimeoutRule
+import org.junit.Rule
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -22,6 +24,9 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
 class DraftRepositoryTest {
+
+    @get:Rule
+    val timeoutRule = TimeoutRule()
 
     private lateinit var repository: DraftRepository
     private val context: Context = RuntimeEnvironment.getApplication()

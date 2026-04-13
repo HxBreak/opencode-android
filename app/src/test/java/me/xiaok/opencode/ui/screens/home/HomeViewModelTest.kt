@@ -4,9 +4,11 @@ import android.content.Intent
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import me.xiaok.opencode.data.local.db.entity.SessionEntity
 import me.xiaok.opencode.data.repository.CacheRepository
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.di.ServiceModule
@@ -37,6 +39,7 @@ class HomeViewModelTest {
 
     private val serversFlow = MutableStateFlow<List<ServerConnection>>(emptyList())
     private val connectionStatesFlow = MutableStateFlow<Map<String, ServerRepository.ConnectionState>>(emptyMap())
+    private val serverVersionsFlow = MutableStateFlow<Map<String, String>>(emptyMap())
 
     @Before
     fun setup() {
@@ -48,6 +51,8 @@ class HomeViewModelTest {
 
         every { serverRepository.servers } returns serversFlow
         every { serverRepository.connectionStates } returns connectionStatesFlow
+        every { serverRepository.serverVersions } returns serverVersionsFlow
+        every { cacheRepository.getRecentSessions(any()) } returns flowOf(emptyList())
     }
 
     @After

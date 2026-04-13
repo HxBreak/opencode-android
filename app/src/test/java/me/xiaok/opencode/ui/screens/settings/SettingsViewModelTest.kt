@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import me.xiaok.opencode.data.repository.CacheRepository
+import me.xiaok.opencode.data.repository.MetadataCache
 import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.utils.CoroutineTestRule
 import org.junit.After
@@ -34,6 +35,7 @@ class SettingsViewModelTest {
 
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var cacheRepository: CacheRepository
+    private lateinit var metadataCache: MetadataCache
     private lateinit var vm: SettingsViewModel
 
     private val themeFlow = MutableStateFlow("system")
@@ -53,6 +55,7 @@ class SettingsViewModelTest {
 
         settingsRepository = mockk(relaxed = true)
         cacheRepository = mockk(relaxed = true)
+        metadataCache = mockk(relaxed = true)
 
         every { settingsRepository.theme } returns themeFlow
         every { settingsRepository.reconnectMode } returns reconnectModeFlow
@@ -61,7 +64,7 @@ class SettingsViewModelTest {
         every { settingsRepository.imageCompress } returns imageCompressFlow
         every { settingsRepository.notificationsEnabled } returns notificationsEnabledFlow
 
-        vm = SettingsViewModel(settingsRepository, cacheRepository)
+        vm = SettingsViewModel(settingsRepository, cacheRepository, metadataCache)
     }
 
     @After
@@ -153,5 +156,14 @@ class SettingsViewModelTest {
         vm.setInitialMessages(100)
         testScope.advanceUntilIdle()
         coVerify { settingsRepository.setInitialMessages(100) }
+    }
+
+    @Test
+    fun `clearCacheData clears room cache and metadata cache`() {
+        vm.clearCacheData()
+        testScope.advanceUntilIdle()
+
+        coVerify { cacheRepository.clearAllCacheData() }
+        coVerify { metadataCache.invalidateAll() }
     }
 }

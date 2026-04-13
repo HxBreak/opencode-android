@@ -3,6 +3,8 @@ package me.xiaok.opencode.utils
 import android.content.Intent
 import android.net.Uri
 import me.xiaok.opencode.utils.ShareIntentHandler.SharedContent
+import me.xiaok.opencode.utils.TimeoutRule
+import org.junit.Rule
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -13,6 +15,9 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ShareIntentHandlerTest {
+
+    @get:Rule
+    val timeoutRule = TimeoutRule()
 
     private lateinit var handler: ShareIntentHandler
 

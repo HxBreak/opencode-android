@@ -18,6 +18,7 @@ import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.CacheRepository
 import me.xiaok.opencode.data.repository.DraftRepository
 import me.xiaok.opencode.data.repository.EventReducer
+import me.xiaok.opencode.data.repository.MetadataCache
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.domain.model.*
@@ -66,6 +67,7 @@ class ChatViewModelTest {
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var imageCompressor: ImageCompressor
     private lateinit var cacheRepository: CacheRepository
+    private lateinit var metadataCache: MetadataCache
     private lateinit var errorCollector: ErrorCollector
     private lateinit var sessionStatsUseCase: SessionStatsUseCase
     private lateinit var draftManagementUseCase: DraftManagementUseCase
@@ -98,6 +100,7 @@ class ChatViewModelTest {
         settingsRepository = mockk(relaxed = true)
         imageCompressor = mockk(relaxed = true)
         errorCollector = mockk(relaxed = true)
+        metadataCache = mockk(relaxed = true)
         sessionStatsUseCase = SessionStatsUseCase()
         draftManagementUseCase = DraftManagementUseCase(draftRepository)
         mentionManagementUseCase = MentionManagementUseCase(api, eventReducer, serverRepository)
@@ -105,7 +108,7 @@ class ChatViewModelTest {
         sessionNavigationUseCase = SessionNavigationUseCase(api, eventReducer, serverRepository)
         sessionOpsUseCase = me.xiaok.opencode.ui.screens.chat.usecases.SessionOpsUseCase(api, eventReducer, serverRepository, errorCollector)
         sendMessageUseCase = SendMessageUseCase(api, eventReducer, serverRepository, draftRepository, settingsRepository, errorCollector)
-        modelSelectionUseCase = ModelSelectionUseCase(api, eventReducer, serverRepository, settingsRepository)
+        modelSelectionUseCase = ModelSelectionUseCase(api, eventReducer, serverRepository, settingsRepository, metadataCache)
         messageLoadingUseCase = MessageLoadingUseCase(api, eventReducer, serverRepository, settingsRepository, errorCollector)
         chatCommandUseCase = ChatCommandUseCase(eventReducer, settingsRepository, sessionOpsUseCase, modelSelectionUseCase, errorCollector)
 
@@ -118,6 +121,12 @@ class ChatViewModelTest {
             TestFixtures.testAgentConfig(name = "explore", mode = "subagent")
         )
         coEvery { api.getCommands(any()) } returns listOf(TestFixtures.testCommandInfo())
+        coEvery { metadataCache.getProviders(any(), any()) } returns TestFixtures.testProviderList()
+        coEvery { metadataCache.getAgents(any(), any()) } returns listOf(
+            TestFixtures.testAgentConfig(),
+            TestFixtures.testAgentConfig(name = "explore", mode = "subagent")
+        )
+        coEvery { metadataCache.getCommands(any(), any()) } returns listOf(TestFixtures.testCommandInfo())
         coEvery { api.getSessionChildren(any(), any()) } returns emptyList()
         coEvery { api.replyQuestion(any(), any(), any()) } returns true
         coEvery { api.rejectQuestion(any(), any()) } returns true
@@ -897,5 +906,180 @@ class ChatViewModelTest {
             permissionQuestionUseCase, sessionNavigationUseCase, sessionOpsUseCase,
             sendMessageUseCase, modelSelectionUseCase, messageLoadingUseCase, chatCommandUseCase,
         )
+    }
+
+    // ====================================================================
+    // childSessions (Hover Sentinel)
+    // ====================================================================
+
+    @Test
+    fun `childSessions empty when no children exist`() = testScope.runTest {
+        eventReducer.setSessions(testServer.id, listOf(testSession))
+
+        val vm = createViewModel()
+        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.uiState.value
+        assertTrue(state.childSessions.isEmpty())
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `childSessions returns filtered and sorted list`() = testScope.runTest {
+        val child1 = TestFixtures.testSession(
+            id = "child1",
+            parentID = testSession.id,
+            title = "First child",
+            time = TestFixtures.testSessionTime(created = 100L),
+        )
+        val child2 = TestFixtures.testSession(
+            id = "child2",
+            parentID = testSession.id,
+            title = "Second child",
+            time = TestFixtures.testSessionTime(created = 200L),
+        )
+        val unrelated = TestFixtures.testSession(
+            id = "other",
+            parentID = "different-parent",
+            title = "Unrelated",
+        )
+
+        eventReducer.setSessions(testServer.id, listOf(testSession, child1, child2, unrelated))
+
+        val vm = createViewModel()
+        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.uiState.first { it.childSessions.size == 2 }
+        assertEquals(2, state.childSessions.size)
+        assertEquals("First child", state.childSessions[0].session.title)
+        assertEquals("Second child", state.childSessions[1].session.title)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `childSessions includes status for each child`() = testScope.runTest {
+        val child1 = TestFixtures.testSession(
+            id = "child-busy",
+            parentID = testSession.id,
+        )
+        val child2 = TestFixtures.testSession(
+            id = "child-idle",
+            parentID = testSession.id,
+        )
+
+        eventReducer.setSessions(testServer.id, listOf(testSession, child1, child2))
+        eventReducer.updateSessionStatus("child-busy", SessionStatus.Busy)
+        eventReducer.updateSessionStatus("child-idle", SessionStatus.Idle)
+
+        val vm = createViewModel()
+        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.uiState.first { it.childSessions.size == 2 }
+        val busyChild = state.childSessions.first { it.session.id == "child-busy" }
+        val idleChild = state.childSessions.first { it.session.id == "child-idle" }
+        assertTrue(busyChild.status is SessionStatus.Busy)
+        assertTrue(idleChild.status is SessionStatus.Idle)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `childSessions updates when SSE status changes`() = testScope.runTest {
+        val child = TestFixtures.testSession(
+            id = "child-update",
+            parentID = testSession.id,
+        )
+
+        eventReducer.setSessions(testServer.id, listOf(testSession, child))
+
+        val vm = createViewModel()
+        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val initialState = vm.uiState.first { it.childSessions.size == 1 }
+        assertTrue(initialState.childSessions.first().status is SessionStatus.Idle)
+
+        eventReducer.updateSessionStatus("child-update", SessionStatus.Busy)
+        advanceUntilIdle()
+
+        val updatedState = vm.uiState.first {
+            it.childSessions.isNotEmpty() && it.childSessions.first().status is SessionStatus.Busy
+        }
+        assertTrue(updatedState.childSessions.first().status is SessionStatus.Busy)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `childSessions handles missing status defaults to Idle`() = testScope.runTest {
+        val child = TestFixtures.testSession(
+            id = "child-no-status",
+            parentID = testSession.id,
+        )
+
+        eventReducer.setSessions(testServer.id, listOf(testSession, child))
+
+        val vm = createViewModel()
+        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.uiState.first { it.childSessions.size == 1 }
+        val childInfo = state.childSessions.first()
+        assertTrue(childInfo.status is SessionStatus.Idle)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `childSessions handles Retry status correctly`() = testScope.runTest {
+        val child = TestFixtures.testSession(
+            id = "child-retry",
+            parentID = testSession.id,
+        )
+
+        eventReducer.setSessions(testServer.id, listOf(testSession, child))
+        eventReducer.updateSessionStatus("child-retry", SessionStatus.Retry(attempt = 3, message = "timeout"))
+
+        val vm = createViewModel()
+        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.uiState.first { it.childSessions.size == 1 }
+        val retryStatus = state.childSessions.first().status
+        assertTrue(retryStatus is SessionStatus.Retry)
+        assertEquals(3, (retryStatus as SessionStatus.Retry).attempt)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `childSessions updates when sessions are added`() = testScope.runTest {
+        val child1 = TestFixtures.testSession(
+            id = "child-add1",
+            parentID = testSession.id,
+        )
+
+        val vm = createViewModel()
+        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(0, vm.uiState.value.childSessions.size)
+
+        eventReducer.setSessions(testServer.id, listOf(testSession, child1))
+        advanceUntilIdle()
+
+        val state = vm.uiState.first { it.childSessions.isNotEmpty() }
+        assertEquals(1, state.childSessions.size)
+        assertEquals("child-add1", state.childSessions.first().session.id)
+
+        val child2 = TestFixtures.testSession(
+            id = "child-add2",
+            parentID = testSession.id,
+        )
+        eventReducer.setSessions(testServer.id, listOf(testSession, child1, child2))
+        advanceUntilIdle()
+
+        val updated = vm.uiState.first { it.childSessions.size == 2 }
+        assertEquals(2, updated.childSessions.size)
+        collectJob.cancel()
     }
 }

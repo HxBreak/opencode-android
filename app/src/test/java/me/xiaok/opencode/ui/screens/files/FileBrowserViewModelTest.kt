@@ -119,7 +119,7 @@ class FileBrowserViewModelTest {
         advanceUntilIdle()
 
         val state = vm.uiState.value
-        assertEquals("fun main() {}", state.fileContent)
+        assertEquals("fun main() {}", state.fileContent?.content)
         assertEquals("src/App.kt", state.viewingFilePath)
         assertFalse(state.isLoading)
 

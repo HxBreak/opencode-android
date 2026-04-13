@@ -7,6 +7,8 @@ import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import me.xiaok.opencode.domain.model.ModelRef
+import me.xiaok.opencode.utils.TimeoutRule
+import org.junit.Rule
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -19,6 +21,9 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
 class SettingsRepositoryTest {
+
+    @get:Rule
+    val timeoutRule = TimeoutRule()
 
     private lateinit var repository: SettingsRepository
     private val context: Context = RuntimeEnvironment.getApplication()

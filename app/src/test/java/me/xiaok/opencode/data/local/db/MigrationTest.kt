@@ -5,6 +5,8 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.test.runTest
+import me.xiaok.opencode.utils.TimeoutRule
+import org.junit.Rule
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -17,6 +19,9 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
 class MigrationTest {
+
+    @get:Rule
+    val timeoutRule = TimeoutRule()
 
     private lateinit var db: SupportSQLiteDatabase
 

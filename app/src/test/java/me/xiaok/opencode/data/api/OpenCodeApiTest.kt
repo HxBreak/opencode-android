@@ -9,6 +9,8 @@ import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.*
 import me.xiaok.opencode.domain.model.*
+import me.xiaok.opencode.utils.TimeoutRule
+import org.junit.Rule
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -24,6 +26,9 @@ import org.junit.Test
  * on JVM — that's acceptable, we test the no-auth path).
  */
 class OpenCodeApiTest {
+
+    @get:Rule
+    val timeoutRule = TimeoutRule()
 
     private lateinit var testJson: Json
     private val testBaseUrl = "http://test-server:4096"
@@ -284,7 +289,7 @@ class OpenCodeApiTest {
 
     @Test
     fun `getSessionStatuses sends GET to session status endpoint`() = runTest {
-        val json = """{"ses_1":"IDLE","ses_2":"BUSY"}"""
+        val json = """{"ses_1":{"type":"idle"},"ses_2":{"type":"busy"}}"""
         val engine = MockEngine { request ->
             assertEquals(HttpMethod.Get, request.method)
             assertEquals("/session/status", request.url.encodedPath)
@@ -293,8 +298,8 @@ class OpenCodeApiTest {
         val api = createApi(engine)
         val result = api.getSessionStatuses(testConn())
         assertEquals(2, result.size)
-        assertEquals("IDLE", result["ses_1"])
-        assertEquals("BUSY", result["ses_2"])
+        assertEquals(SessionStatus.Idle, result["ses_1"])
+        assertEquals(SessionStatus.Busy, result["ses_2"])
     }
 
     // ================================================================
@@ -507,7 +512,7 @@ class OpenCodeApiTest {
             assertEquals(HttpMethod.Get, request.method)
             assertEquals("/file/content", request.url.encodedPath)
             assertEquals("src/Main.kt", request.url.parameters["path"])
-            respond(content, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "text/plain"))
+            respondJson("""{"content":"$content"}""")
         }
         val api = createApi(engine)
         val result = api.getFileContent(testConn(), "src/Main.kt")
@@ -768,7 +773,7 @@ class OpenCodeApiTest {
 
     @Test
     fun `getSessionDiff sends GET to session diff endpoint`() = runTest {
-        val json = """[{"path":"App.kt","additions":5,"deletions":1,"content":"","patch":"@@ -1 +1 @@"}]"""
+        val json = """[{"file":"App.kt","additions":5,"deletions":1,"before":"","after":""}]"""
         val engine = MockEngine { request ->
             assertEquals(HttpMethod.Get, request.method)
             assertEquals("/session/ses_1/diff", request.url.encodedPath)
@@ -1199,9 +1204,9 @@ class OpenCodeApiTest {
     }
 
     @Test
-    fun `disposeInstance includes directory query param`() = runTest {
+    fun `disposeInstance includes directory header`() = runTest {
         val engine = MockEngine { request ->
-            assertEquals("/home/user/project", request.url.parameters["directory"])
+            assertEquals("/home/user/project", request.headers["x-opencode-directory"])
             respondJson("true")
         }
         val api = createApi(engine)

@@ -38,6 +38,7 @@ class ServerRepositoryTest {
     private val credentialStore = mockk<CredentialStore>(relaxed = true)
     private val cacheRepository = mockk<CacheRepository>(relaxed = true)
     private val settingsRepository = mockk<SettingsRepository>(relaxed = true)
+    private val metadataCache = mockk<MetadataCache>(relaxed = true)
 
     private val testServer = TestFixtures.testServerConnection()
     private val testServer2 = TestFixtures.testServerConnection(
@@ -88,6 +89,7 @@ class ServerRepositoryTest {
             credentialStore = credentialStore,
             cacheRepository = cacheRepository,
             settingsRepository = settingsRepository,
+            metadataCache = metadataCache,
         ).also { repository = it }
     }
 
@@ -338,7 +340,10 @@ class ServerRepositoryTest {
         Thread.sleep(200)
         repo.disconnect(testServer.id)
 
+        Thread.sleep(50)
+
         verify { eventReducer.clearForServer(testServer.id) }
+        coVerify { metadataCache.invalidateServer(testServer.id) }
 
         val state = repo.connectionStates.value[testServer.id]
         assertEquals(ServerRepository.ConnectionState.DISCONNECTED, state)
@@ -350,6 +355,10 @@ class ServerRepositoryTest {
 
         // Should not throw
         repo.disconnect(testServer.id)
+
+        Thread.sleep(50)
+
+        coVerify { metadataCache.invalidateServer(testServer.id) }
     }
 
     // ====================================================================

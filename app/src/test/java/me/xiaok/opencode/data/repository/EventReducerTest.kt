@@ -8,6 +8,7 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import me.xiaok.opencode.domain.model.*
 import me.xiaok.opencode.fixtures.TestFixtures
@@ -164,19 +165,19 @@ class EventReducerTest {
     fun `process SessionStatusChanged updates session status`() = testScope.runTest {
         reducer.processEvent("server1", SseEvent.SessionCreated(TestFixtures.testSession(id = "ses_abc")))
 
-        reducer.processEvent("server1", SseEvent.SessionStatusChanged("ses_abc", SessionStatus.BUSY))
+        reducer.processEvent("server1", SseEvent.SessionStatusChanged("ses_abc", SessionStatus.Busy))
 
-        assertEquals(SessionStatus.BUSY, reducer.sessionStatuses.value["ses_abc"])
+        assertEquals(SessionStatus.Busy, reducer.sessionStatuses.value["ses_abc"])
     }
 
     @Test
     fun `process SessionIdle sets status to IDLE`() = testScope.runTest {
         reducer.processEvent("server1", SseEvent.SessionCreated(TestFixtures.testSession(id = "ses_abc")))
-        reducer.processEvent("server1", SseEvent.SessionStatusChanged("ses_abc", SessionStatus.BUSY))
+        reducer.processEvent("server1", SseEvent.SessionStatusChanged("ses_abc", SessionStatus.Busy))
 
         reducer.processEvent("server1", SseEvent.SessionIdle("ses_abc"))
 
-        assertEquals(SessionStatus.IDLE, reducer.sessionStatuses.value["ses_abc"])
+        assertEquals(SessionStatus.Idle, reducer.sessionStatuses.value["ses_abc"])
     }
 
     @Test
@@ -204,6 +205,28 @@ class EventReducerTest {
         reducer.processEvent("server1", SseEvent.SessionError(null, error))
 
         assertTrue(reducer.sessionErrors.value.isEmpty())
+    }
+
+    @Test
+    fun `clearSessionError removes error for session`() = testScope.runTest {
+        val error = TestFixtures.testErrorInfo(name = "APIError", data = TestFixtures.testErrorData(message = "Boom"))
+        reducer.processEvent("server1", SseEvent.SessionError("ses_abc", error))
+        assertEquals("Boom", reducer.sessionErrors.value["ses_abc"])
+
+        reducer.clearSessionError("ses_abc")
+
+        assertNull(reducer.sessionErrors.value["ses_abc"])
+    }
+
+    @Test
+    fun `clearSessionError does nothing if session has no error`() = testScope.runTest {
+        val error = TestFixtures.testErrorInfo(name = "APIError", data = TestFixtures.testErrorData(message = "Boom"))
+        reducer.processEvent("server1", SseEvent.SessionError("ses_abc", error))
+
+        reducer.clearSessionError("ses_other")
+
+        assertEquals("Boom", reducer.sessionErrors.value["ses_abc"])
+        assertTrue(reducer.sessionErrors.value["ses_other"] == null)
     }
 
     // ====================================================================
@@ -321,6 +344,8 @@ class EventReducerTest {
             field = "text",
             delta = " World"
         ))
+        advanceUntilIdle()
+        Thread.sleep(100)
 
         val parts = reducer.parts.value["msg_1"]!!
         assertEquals("Hello World", (parts[0] as Part.Text).text)
@@ -355,6 +380,8 @@ class EventReducerTest {
             field = "text",
             delta = " Step 2"
         ))
+        advanceUntilIdle()
+        Thread.sleep(100)
 
         val parts = reducer.parts.value["msg_1"]!!
         assertEquals("Step 1 Step 2", (parts[0] as Part.Reasoning).text)
@@ -766,9 +793,9 @@ class EventReducerTest {
 
     @Test
     fun `updateSessionStatus directly updates status`() = testScope.runTest {
-        reducer.updateSessionStatus("ses_abc", SessionStatus.RETRY)
+        reducer.updateSessionStatus("ses_abc", SessionStatus.Retry())
 
-        assertEquals(SessionStatus.RETRY, reducer.sessionStatuses.value["ses_abc"])
+        assertEquals(SessionStatus.Retry(), reducer.sessionStatuses.value["ses_abc"])
     }
 
     @Test

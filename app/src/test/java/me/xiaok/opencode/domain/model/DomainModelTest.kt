@@ -2,6 +2,8 @@ package me.xiaok.opencode.domain.model
 
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import me.xiaok.opencode.utils.TimeoutRule
+import org.junit.Rule
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -14,6 +16,9 @@ import org.junit.Test
  * Complement to ModelDeserializationTest - no duplication.
  */
 class DomainModelTest {
+
+    @get:Rule
+    val timeoutRule = TimeoutRule()
 
     private lateinit var json: Json
 
@@ -196,7 +201,7 @@ class DomainModelTest {
             SseEvent.SessionCreated(Session(id = "s1")),
             SseEvent.SessionUpdated(Session(id = "s1")),
             SseEvent.SessionDeleted(Session(id = "s1")),
-            SseEvent.SessionStatusChanged("s1", SessionStatus.BUSY),
+            SseEvent.SessionStatusChanged("s1", SessionStatus.Busy),
             SseEvent.SessionIdle("s1"),
             SseEvent.SessionDiff("s1", emptyList()),
             SseEvent.SessionError("s1", null),
@@ -238,12 +243,12 @@ class DomainModelTest {
 
     @Test
     fun `SseEvent-SessionStatusChanged round-trips with status`() {
-        val event = SseEvent.SessionStatusChanged(sessionId = "ses_1", status = SessionStatus.BUSY)
+        val event = SseEvent.SessionStatusChanged(sessionId = "ses_1", status = SessionStatus.Busy)
         val encoded = json.encodeToString(SseEvent.serializer(), event)
         val decoded = json.decodeFromString<SseEvent>(encoded)
         assertTrue(decoded is SseEvent.SessionStatusChanged)
         assertEquals("ses_1", (decoded as SseEvent.SessionStatusChanged).sessionId)
-        assertEquals(SessionStatus.BUSY, decoded.status)
+        assertEquals(SessionStatus.Busy, decoded.status)
     }
 
     @Test
