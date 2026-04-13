@@ -2,13 +2,18 @@ package me.xiaok.opencode.ui.screens.chat
 
 import android.net.Uri
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.DraftRepository
 import me.xiaok.opencode.data.repository.EventReducer
@@ -16,6 +21,7 @@ import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.domain.model.*
 import me.xiaok.opencode.domain.model.MentionItem
+import me.xiaok.opencode.domain.model.Todo
 import me.xiaok.opencode.ui.screens.chat.usecases.ChatCommandUseCase
 import me.xiaok.opencode.ui.screens.chat.usecases.DraftManagementUseCase
 import me.xiaok.opencode.ui.screens.chat.usecases.MentionManagementUseCase
@@ -30,14 +36,33 @@ import me.xiaok.opencode.utils.ErrorCollector
 import me.xiaok.opencode.utils.ImageCompressor
 import javax.inject.Inject
 
+data class ChildSessionInfo(
+    val session: Session,
+    val status: SessionStatus = SessionStatus.Idle,
+)
+
+data class ChatTurn(
+    val userMessage: Message,
+    val assistantMessages: List<Message> = emptyList(),
+    val turnId: String = userMessage.id,
+    val groupedParts: List<TurnPartGroup> = emptyList(),
+    val partLookup: Map<PartRef, Part> = emptyMap(),
+    val isCompactionOnly: Boolean = false,
+    val userParts: List<Part> = emptyList(),
+    val isSyntheticUser: Boolean = false,
+    val isActivelyReasoning: Boolean = false,
+    val childSessionIdLookup: Map<String, String> = emptyMap(),
+)
+
 data class ChatUiState(
     val session: Session? = null,
     val messages: List<Message> = emptyList(),
     val parts: Map<String, List<Part>> = emptyMap(),
+    val turns: List<ChatTurn> = emptyList(),
     val permissions: List<PermissionRequest> = emptyList(),
     val questions: List<QuestionRequest> = emptyList(),
     val sessionDiffs: List<FileDiff> = emptyList(),
-    val sessionStatus: SessionStatus = SessionStatus.IDLE,
+    val sessionStatus: SessionStatus = SessionStatus.Idle,
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
     val hasOlderMessages: Boolean = true,
@@ -59,10 +84,15 @@ data class ChatUiState(
     val mentions: List<MentionItem> = emptyList(),
     val autoScrollEnabled: Boolean = true,
     val childSessionIds: Map<String, String> = emptyMap(),
+    val childSessions: List<ChildSessionInfo> = emptyList(),
     val chatFontSize: String = "medium",
     val submittingQuestionIds: Set<String> = emptySet(),
-    val sessionWebUrl: String = "",
     val activePtyCount: Int = 0,
+    val commandMessage: String? = null,
+    val commandMessageId: Long = 0L,
+    val shareUrl: String? = null,
+    val shareDisabled: Boolean = false,
+    val todos: List<Todo> = emptyList(),
 )
 
 @HiltViewModel
@@ -94,6 +124,8 @@ class ChatViewModel @Inject constructor(
 
     private val _isSending = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
+    private val _commandMessage = MutableStateFlow<String?>(null)
+    private val _commandMessageId = MutableStateFlow(0L)
     private val _isLoading = MutableStateFlow(false)
     private val _isLoadingMore = MutableStateFlow(false)
     private val _hasOlderMessages = MutableStateFlow(true)
@@ -105,6 +137,7 @@ class ChatViewModel @Inject constructor(
     private val _attachedImages = MutableStateFlow<List<AttachedImage>>(emptyList())
     private val _mentions = MutableStateFlow<List<MentionItem>>(emptyList())
     private val _autoScrollEnabled = MutableStateFlow(true)
+    private val _shareUrl = MutableStateFlow<String?>(null)
     private val _chatFontSize = settingsRepository.chatFontSize.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), "medium"
     )
@@ -133,6 +166,18 @@ class ChatViewModel @Inject constructor(
         eventReducer.sessions,
     ) { messages, allParts, allSessions ->
         computeChildSessionIds(sessionId, messages, allParts, allSessions)
+    }.distinctUntilChanged()
+
+    private val childSessionsFlow: Flow<List<ChildSessionInfo>> = combine(
+        eventReducer.sessions,
+        eventReducer.sessionStatuses,
+    ) { allSessions, allStatuses ->
+        allSessions.values
+            .filter { it.parentID == sessionId }
+            .sortedBy { it.time.created }
+            .map { child ->
+                ChildSessionInfo(child, allStatuses[child.id] ?: SessionStatus.Idle)
+            }
     }.distinctUntilChanged()
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -168,9 +213,15 @@ class ChatViewModel @Inject constructor(
 
         Log.d(TAG, "combine: sessionId=$sessionId, questions=${mergedQuestions.size}, descendants=${descendantIds.size}, sessions=${allSessions.size}")
         ChatPartialState(session, messages, parts, permissions, mergedQuestions, diffs, allSessions)
-    }.flatMapLatest { partial ->
+    }.map { partial ->
+        partial to groupMessagesIntoTurns(partial.messages, partial.parts)
+    }.distinctUntilChanged { (old, _), (new, _) ->
+        old == new
+    }.flowOn(Dispatchers.Default)
+    .conflate()
+    .flatMapLatest { (partial, turns) ->
         combine(
-            eventReducer.sessionStatuses.map { it[sessionId] ?: SessionStatus.IDLE },
+            eventReducer.sessionStatuses.map { it[sessionId] ?: SessionStatus.Idle },
             _isLoading,
             _isLoadingMore,
             _isSending,
@@ -185,7 +236,18 @@ class ChatViewModel @Inject constructor(
                 SelectorState(selector, selVariant)
             }.flatMapLatest { selector ->
                 _attachedImages.flatMapLatest { images ->
-                    combine(draftRepository.getDraft(sessionId), sessionStats, childSessionIdsFlow, eventReducer.ptySessions) { draft, stats, subSessionIds, allPtys ->
+                    val todosFlow = eventReducer.todos.map { it[sessionId] ?: emptyList() }
+                    combine(
+                        combine(draftRepository.getDraft(sessionId), sessionStats, childSessionIdsFlow, childSessionsFlow, eventReducer.ptySessions) { draft, stats, subSessionIds, childSessions, allPtys ->
+                            DraftCombineResult(draft, stats, subSessionIds, childSessions, allPtys)
+                        },
+                        todosFlow,
+                    ) { draftResult, todos ->
+                        val draft = draftResult.draft
+                        val stats = draftResult.stats
+                        val subSessionIds = draftResult.subSessionIds
+                        val childSessions = draftResult.childSessions
+                        val allPtys = draftResult.allPtys
                         if (draft != null) {
                             if (modelSelectionUseCase.selectedAgent.value == null && draft.selectedAgent != null) {
                                 modelSelectionUseCase.selectedAgent.value = draft.selectedAgent
@@ -198,10 +260,21 @@ class ChatViewModel @Inject constructor(
                             }
                         }
 
+                        // Inject per-turn childSessionIdLookup from global subSessionIds
+                        val enrichedTurns = if (subSessionIds.isNotEmpty()) {
+                            turns.map { turn ->
+                                val subtaskPartIds = turn.partLookup.keys.map { it.partId }.toSet()
+                                turn.copy(
+                                    childSessionIdLookup = subSessionIds.filterKeys { it in subtaskPartIds }
+                                )
+                            }
+                        } else turns
+
                         ChatUiState(
                             session = partial.session,
                             messages = partial.messages,
                             parts = partial.parts,
+                            turns = enrichedTurns,
                             permissions = partial.permissions,
                             questions = partial.questions,
                             sessionDiffs = partial.sessionDiffs,
@@ -227,10 +300,15 @@ class ChatViewModel @Inject constructor(
                             mentions = _mentions.value,
                             autoScrollEnabled = _autoScrollEnabled.value,
                             childSessionIds = subSessionIds,
+                            childSessions = childSessions,
                             chatFontSize = _chatFontSize.value,
                             submittingQuestionIds = _submittingQuestionIds.value,
-                            sessionWebUrl = buildSessionWebUrl(partial.session),
                             activePtyCount = allPtys[serverId]?.count { (_, pty) -> pty.status != "exited" } ?: 0,
+                            commandMessage = _commandMessage.value,
+                            commandMessageId = _commandMessageId.value,
+                            shareUrl = _shareUrl.value,
+                            shareDisabled = modelSelectionUseCase.shareConfig.value == "disabled",
+                            todos = todos,
                         )
                     }
                 }
@@ -244,6 +322,14 @@ class ChatViewModel @Inject constructor(
         val commands: List<CommandInfo>,
         val selectedAgent: String?,
         val selectedModel: ModelRef?,
+    )
+
+    private data class DraftCombineResult(
+        val draft: ChatDraft?,
+        val stats: SessionStatsUseCase.SessionStats,
+        val subSessionIds: Map<String, String>,
+        val childSessions: List<ChildSessionInfo>,
+        val allPtys: Map<String, Map<String, PtyInfo>>,
     )
 
     private data class SelectorState(
@@ -269,15 +355,12 @@ class ChatViewModel @Inject constructor(
         val error: String?,
     )
 
-    private fun buildSessionWebUrl(session: Session?): String {
-        return sessionNavigationUseCase.buildSessionWebUrl(serverId, session)
-    }
-
     init {
         viewModelScope.launch {
             eventReducer.markSessionViewed(serverId, sessionId)
         }
         loadMessages()
+        loadSessionStatus()
         viewModelScope.launch { modelSelectionUseCase.loadProviders(serverId) }
         modelSelectionUseCase.observeHiddenFilter(serverId, viewModelScope)
         viewModelScope.launch { modelSelectionUseCase.loadAgents(serverId) }
@@ -285,6 +368,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch { modelSelectionUseCase.loadConfiguredModel(serverId) }
         loadChildSessions()
         loadPendingQuestions()
+        loadTodosFromParts()
     }
 
     override fun onCleared() {
@@ -328,12 +412,66 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Proactively query status to handle cold starts or missed SSE events. */
+    private fun loadSessionStatus() {
+        viewModelScope.launch {
+            try {
+                val server = serverRepository.getServer(serverId) ?: return@launch
+                val directory = eventReducer.sessions.value[sessionId]?.directory
+                val statuses = api.getSessionStatuses(server, directory = directory)
+                val status = statuses[sessionId] ?: return@launch
+                eventReducer.updateSessionStatus(sessionId, status)
+            } catch (e: Exception) {
+                Log.d(TAG, "loadSessionStatus: failed for session=$sessionId", e)
+            }
+        }
+    }
+
     private fun loadPendingQuestions() {
         viewModelScope.launch {
             try {
                 sessionNavigationUseCase.loadPendingQuestions(serverId, sessionId)
             } catch (e: Exception) {
                 Log.e(TAG, "loadPendingQuestions: failed", e)
+            }
+        }
+    }
+
+    /**
+     * Load initial todo state from the latest todowrite tool call in message parts.
+     * This handles the cold-start case where SSE events were missed.
+     * If SSE already delivered todos (e.g. from a live session), this is a no-op.
+     */
+    private fun loadTodosFromParts() {
+        viewModelScope.launch {
+            // Wait for messages to be loaded first
+            eventReducer.messages.map { it[sessionId] ?: emptyList() }
+                .first { it.isNotEmpty() }
+
+            // Don't overwrite if SSE already delivered todos
+            if (eventReducer.todos.value[sessionId] != null) return@launch
+
+            val allParts = eventReducer.parts.value
+            val sessionMessages = eventReducer.messages.value[sessionId] ?: return@launch
+
+            // Scan all parts for the last completed todowrite tool call
+            val todoParts = sessionMessages.flatMap { msg ->
+                (allParts[msg.id] ?: emptyList())
+                    .filterIsInstance<Part.Tool>()
+                    .filter { it.tool == "todowrite" && it.state.isCompleted }
+            }
+
+            val lastTodoPart = todoParts.lastOrNull() ?: return@launch
+            val todosJson = lastTodoPart.state.metadata
+                ?.let { (it as? JsonObject)?.get("todos") }
+                ?: return@launch
+
+            try {
+                val json = Json { ignoreUnknownKeys = true }
+                val todos = json.decodeFromJsonElement<List<Todo>>(todosJson)
+                eventReducer.updateTodos(sessionId, todos)
+            } catch (e: Exception) {
+                Log.d(TAG, "loadTodosFromParts: failed to parse todos from parts", e)
             }
         }
     }
@@ -426,9 +564,8 @@ class ChatViewModel @Inject constructor(
     fun abortSession() {
         viewModelScope.launch {
             try {
-                val server = serverRepository.getServer(serverId) ?: return@launch
                 val directory = eventReducer.sessions.value[sessionId]?.directory
-                api.abortSession(server, sessionId, directory = directory)
+                sessionOpsUseCase.abortSession(serverId, sessionId, directory)
             } catch (e: Exception) {
                 errorCollector.logError(e, "Chat")
                 _error.value = e.message ?: "Failed to abort"
@@ -521,7 +658,9 @@ class ChatViewModel @Inject constructor(
             try {
                 val compressed = imageCompressor.compress(uri)
                 if (compressed == null) {
-                    Log.e(TAG, "attachImage: compression returned null for uri=$uri")
+                    val msg = "Failed to attach image: compression failed for uri=$uri"
+                    Log.e(TAG, msg)
+                    errorCollector.logError(msg, "Chat")
                     _error.value = "Failed to attach image: compression failed"
                     return@launch
                 }
@@ -532,6 +671,7 @@ class ChatViewModel @Inject constructor(
                 Log.d(TAG, "attachImage: success, uri=$uri, size=${compressed.size} bytes, mimeType=$mimeType")
             } catch (e: Exception) {
                 Log.e(TAG, "attachImage: failed for uri=$uri", e)
+                errorCollector.logError(e, "Chat")
                 _error.value = "Failed to attach image: ${e.message}"
             }
         }
@@ -613,7 +753,9 @@ class ChatViewModel @Inject constructor(
                 val directory = eventReducer.sessions.value[sessionId]?.directory
                 val workspace = eventReducer.sessions.value[sessionId]?.workspaceID
                 sessionOpsUseCase.refreshSessionDiffs(serverId, sessionId, directory, workspace)
-            } catch (_: Exception) { }
+            } catch (e: Exception) {
+                Log.e(TAG, "refreshSessionDiffs: failed", e)
+            }
         }
     }
 
@@ -697,11 +839,116 @@ class ChatViewModel @Inject constructor(
             viewModelScope.launch {
                 when (val result = chatCommandUseCase.execute(command, serverId, sessionId)) {
                     is ChatCommandUseCase.CommandResult.Error -> _error.value = result.message
+                    is ChatCommandUseCase.CommandResult.ShareSuccess -> _shareUrl.value = result.url
+                    is ChatCommandUseCase.CommandResult.Handled -> {
+                        _commandMessage.value = "/${command.id} executed"
+                        _commandMessageId.value = System.currentTimeMillis()
+                    }
                     else -> {}
                 }
             }
         }
         return isLocal
+    }
+
+    fun dismissShareDialog() {
+        _shareUrl.value = null
+    }
+
+    @VisibleForTesting
+    internal fun groupMessagesIntoTurns(
+        messages: List<Message>,
+        parts: Map<String, List<Part>> = emptyMap(),
+    ): List<ChatTurn> {
+        val turns = mutableListOf<ChatTurn>()
+        var currentTurn: ChatTurn? = null
+        // Track the last synthetic turn index so we can merge orphan assistants
+        // that share the same parentID into one synthetic turn.
+        var lastSyntheticIndex = -1
+
+        for (msg in messages) {
+            when {
+                msg.isUser -> {
+                    currentTurn?.let { turns.add(computeTurnRenderData(it, parts)) }
+                    currentTurn = ChatTurn(userMessage = msg)
+                    lastSyntheticIndex = -1
+                }
+                msg.isAssistant && msg.info.parentID == currentTurn?.userMessage?.id -> {
+                    currentTurn = currentTurn?.copy(
+                        assistantMessages = currentTurn.assistantMessages + msg
+                    )
+                }
+                else -> {
+                    // Orphan assistant: parentID mismatch or no current turn.
+                    // The user message this assistant replies to hasn't been loaded yet
+                    // (it's in an older page). Create a synthetic turn so the assistant
+                    // content is still visible, and merge with the previous synthetic turn
+                    // when they share the same parentID.
+                    currentTurn?.let { turns.add(computeTurnRenderData(it, parts)) }
+                    currentTurn = null
+
+                    val orphanParentId = msg.info.parentID
+                    if (lastSyntheticIndex >= 0 && orphanParentId != null
+                        && turns[lastSyntheticIndex].assistantMessages.firstOrNull()?.info?.parentID == orphanParentId
+                    ) {
+                        // Same orphan group — append to existing synthetic turn
+                        val existing = turns[lastSyntheticIndex]
+                        turns[lastSyntheticIndex] = computeTurnRenderData(
+                            existing.copy(assistantMessages = existing.assistantMessages + msg),
+                            parts,
+                        )
+                    } else {
+                        // New orphan group — create synthetic turn
+                        val syntheticUser = Message(info = MessageInfo(role = "user"))
+                        val syntheticTurn = ChatTurn(
+                            userMessage = syntheticUser,
+                            turnId = "synthetic_${msg.id}",
+                            assistantMessages = listOf(msg),
+                        )
+                        turns.add(computeTurnRenderData(syntheticTurn, parts))
+                        lastSyntheticIndex = turns.lastIndex
+                    }
+                }
+            }
+        }
+        currentTurn?.let { turns.add(computeTurnRenderData(it, parts)) }
+        return turns
+    }
+
+    private fun computeTurnRenderData(turn: ChatTurn, parts: Map<String, List<Part>>): ChatTurn {
+        val allAssistantParts = buildList {
+            for (msg in turn.assistantMessages) {
+                val msgParts = parts[msg.id] ?: msg.parts
+                for (part in msgParts) {
+                    if (renderable(part)) {
+                        add(PartRef(messageId = msg.id, partId = part.id) to part)
+                    }
+                }
+            }
+        }
+
+        val grouped = groupTurnParts(allAssistantParts)
+        val partLookup = allAssistantParts.associate { (ref, part) -> ref to part }
+
+        val userParts = (parts[turn.userMessage.id] ?: turn.userMessage.parts)
+            .ifEmpty { turn.userMessage.parts }
+        val isCompactionOnly = userParts.isNotEmpty() && userParts.all { it is Part.Compaction }
+        val isSyntheticUser = turn.userMessage.id.isEmpty()
+
+        val isActivelyReasoning = turn.assistantMessages.lastOrNull()?.let { lastMsg ->
+            val lastMsgParts = parts[lastMsg.id] ?: lastMsg.parts
+            lastMsgParts.any { it is Part.Reasoning } &&
+                !lastMsgParts.any { it is Part.Text && it.text.isNotBlank() }
+        } ?: false
+
+        return turn.copy(
+            groupedParts = grouped,
+            partLookup = partLookup,
+            isCompactionOnly = isCompactionOnly,
+            userParts = userParts,
+            isSyntheticUser = isSyntheticUser,
+            isActivelyReasoning = isActivelyReasoning,
+        )
     }
 
     companion object {

@@ -1,6 +1,5 @@
 package me.xiaok.opencode.ui.screens.chat.usecases
 
-import android.util.Base64
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.EventReducer
 import me.xiaok.opencode.data.repository.ServerRepository
@@ -15,20 +14,6 @@ class SessionNavigationUseCase @Inject constructor(
     private val eventReducer: EventReducer,
     private val serverRepository: ServerRepository,
 ) {
-    fun buildSessionWebUrl(
-        serverId: String,
-        session: Session?,
-    ): String {
-        if (session == null) return ""
-        val server = serverRepository.getServer(serverId) ?: return ""
-        val base = server.baseUrl.trimEnd('/')
-        val dirEncoded = Base64.encodeToString(
-            session.directory.toByteArray(Charsets.UTF_8),
-            Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP,
-        )
-        return "$base/$dirEncoded/session/${session.id}"
-    }
-
     suspend fun loadChildSessions(
         serverId: String,
         sessionId: String,

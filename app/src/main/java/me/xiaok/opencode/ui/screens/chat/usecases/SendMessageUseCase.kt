@@ -58,10 +58,39 @@ class SendMessageUseCase @Inject constructor(
             return SendResult.Error("Server not found. Please reconnect.")
         }
 
+        // Server-side command: /command [args]
+        if (ctx.text.trimStart().startsWith("/")) {
+            val content = ctx.text.trimStart().removePrefix("/")
+            val cmdParts = content.split(" ", limit = 2)
+            val commandName = cmdParts[0]
+            val commandArgs = cmdParts.getOrNull(1)
+            try {
+                api.sendCommand(server, ctx.sessionId, commandName, commandArgs, directory = ctx.sessionDirectory)
+                Log.d(TAG, "sendMessage: sendCommand returned successfully, command=$commandName")
+            } catch (e: Exception) {
+                Log.e(TAG, "sendMessage: sendCommand FAILED: ${e.javaClass.simpleName}: ${e.message}", e)
+                errorCollector.logError(e, "Chat")
+                restoreDraft(ctx)
+                return SendResult.Error(e.message ?: "Command failed")
+            }
+            return SendResult.Success
+        }
+
+        // Shell command: !command
         if (ctx.text.trimStart().startsWith("!")) {
             val command = ctx.text.trimStart().removePrefix("!").trim()
             if (command.isNotBlank()) {
-                api.runShell(server, ctx.sessionId, command, directory = ctx.sessionDirectory)
+                val agent = ctx.selectedAgent
+                    ?: return SendResult.Error("No agent selected — cannot run shell command")
+                try {
+                    api.runShell(server, ctx.sessionId, command, agent = agent, directory = ctx.sessionDirectory)
+                    Log.d(TAG, "sendMessage: runShell returned successfully, command=$command")
+                } catch (e: Exception) {
+                    Log.e(TAG, "sendMessage: runShell FAILED: ${e.javaClass.simpleName}: ${e.message}", e)
+                    errorCollector.logError(e, "Chat")
+                    restoreDraft(ctx)
+                    return SendResult.Error(e.message ?: "Shell command failed")
+                }
             }
             return SendResult.ShellCommandSent
         }

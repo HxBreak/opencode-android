@@ -3,6 +3,7 @@ package me.xiaok.opencode.ui.screens.chat.usecases
 import android.util.Log
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.EventReducer
+import me.xiaok.opencode.data.repository.MetadataCache
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.domain.model.*
@@ -19,6 +20,7 @@ class ModelSelectionUseCase @Inject constructor(
     private val eventReducer: EventReducer,
     private val serverRepository: ServerRepository,
     private val settingsRepository: SettingsRepository,
+    private val metadataCache: MetadataCache,
 ) {
     val rawProviders = MutableStateFlow<List<Provider>>(emptyList())
     val hiddenModels = MutableStateFlow<Set<String>>(emptySet())
@@ -32,12 +34,13 @@ class ModelSelectionUseCase @Inject constructor(
     val providerDefaults = MutableStateFlow<Map<String, String>>(emptyMap())
     val configuredModel = MutableStateFlow<ModelRef?>(null)
     val savedModel = MutableStateFlow<ModelRef?>(null)
+    val shareConfig = MutableStateFlow<String?>(null) // "manual" | "auto" | "disabled" | null (unknown)
     var modelDefaultsApplied = false
 
     suspend fun loadProviders(serverId: String) {
         try {
             val server = serverRepository.getServer(serverId) ?: return
-            val providerList = api.getProviders(server)
+            val providerList = metadataCache.getProviders(serverId, server)
             val connected = providerList.connected.toSet()
             rawProviders.value = providerList.all.filter { it.id in connected }
             providerDefaults.value = providerList.default
@@ -75,7 +78,7 @@ class ModelSelectionUseCase @Inject constructor(
     suspend fun loadAgents(serverId: String) {
         try {
             val server = serverRepository.getServer(serverId) ?: return
-            val agentList = api.getAgents(server)
+            val agentList = metadataCache.getAgents(serverId, server)
             agents.value = agentList
 
             if (selectedAgent.value == null) {
@@ -97,7 +100,7 @@ class ModelSelectionUseCase @Inject constructor(
                 Log.e(TAG, "loadCommands: server not found for serverId=$serverId")
                 return
             }
-            val commandList = api.getCommands(server)
+            val commandList = metadataCache.getCommands(serverId, server)
             Log.d(TAG, "loadCommands: loaded ${commandList.size} commands")
             commands.value = commandList
         } catch (e: Exception) {
@@ -165,6 +168,10 @@ class ModelSelectionUseCase @Inject constructor(
                         modelID = parts[1],
                     )
                 }
+            }
+            val shareStr = configJson.jsonObject["share"]?.jsonPrimitive?.content
+            if (shareStr != null) {
+                shareConfig.value = shareStr
             }
             tryApplyModelDefaults()
         } catch (_: Exception) { }

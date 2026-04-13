@@ -19,6 +19,7 @@ class ChatCommandUseCase @Inject constructor(
         data object Handled : CommandResult()
         data object NotHandled : CommandResult()
         data class Error(val message: String) : CommandResult()
+        data class ShareSuccess(val url: String) : CommandResult()
     }
 
     /**
@@ -31,13 +32,13 @@ class ChatCommandUseCase @Inject constructor(
         return when (command.id) {
             "undo" -> undoLastTurn(serverId, sessionId)
             "redo" -> redoLastTurn(serverId, sessionId)
-            "compact" -> { summarizeSession(serverId, sessionId); CommandResult.Handled }
-            "share" -> { sessionOpsUseCase.shareSession(serverId, sessionId, getDirectory(sessionId)); CommandResult.Handled }
-            "unshare" -> { sessionOpsUseCase.unshareSession(serverId, sessionId, getDirectory(sessionId)); CommandResult.Handled }
+            "compact" -> summarizeSession(serverId, sessionId)
+            "share" -> shareSession(serverId, sessionId)
+            "unshare" -> unshareSession(serverId, sessionId)
             "fork" -> forkFromLatestMessage(serverId, sessionId)
             "archive" -> archiveCurrentSession(serverId, sessionId)
-            "variant" -> { cycleVariant(serverId); CommandResult.Handled }
-            "theme" -> { cycleTheme(); CommandResult.Handled }
+            "variant" -> cycleVariant(serverId)
+            "theme" -> cycleTheme()
             "new", "sessions", "terminal", "files", "settings", "mcp",
             "model", "agent" -> CommandResult.NotHandled
             else -> CommandResult.NotHandled
@@ -53,7 +54,7 @@ class ChatCommandUseCase @Inject constructor(
         val messages = eventReducer.messages.value[sessionId] ?: emptyList()
         val directory = session.directory
 
-        if (eventReducer.sessionStatuses.value[sessionId] != SessionStatus.IDLE) {
+        if (eventReducer.sessionStatuses.value[sessionId] !is SessionStatus.Idle) {
             try {
                 sessionOpsUseCase.abortSession(serverId, sessionId, directory)
             } catch (_: Exception) {}
@@ -115,35 +116,69 @@ class ChatCommandUseCase @Inject constructor(
         }
     }
 
-    private suspend fun summarizeSession(serverId: String, sessionId: String) {
-        try {
+    private suspend fun summarizeSession(serverId: String, sessionId: String): CommandResult {
+        return try {
             val directory = getDirectory(sessionId)
             sessionOpsUseCase.summarizeSession(serverId, sessionId, modelSelectionUseCase.selectedModel.value, directory)
+            CommandResult.Handled
         } catch (e: Exception) {
             errorCollector.logError(e, "Chat")
+            CommandResult.Error(e.message ?: "Failed to compact session")
         }
     }
 
-    private suspend fun cycleVariant(serverId: String) {
-        val variants = listOf("fast", "think", "agentic")
-        val current = modelSelectionUseCase.selectedVariant.value
-        val next = if (current == null) {
-            variants.first()
-        } else {
-            val idx = variants.indexOf(current)
-            if (idx >= 0 && idx < variants.lastIndex) variants[idx + 1] else null
+    private suspend fun shareSession(serverId: String, sessionId: String): CommandResult {
+        return try {
+            val url = sessionOpsUseCase.shareSession(serverId, sessionId, getDirectory(sessionId))
+            CommandResult.ShareSuccess(url)
+        } catch (e: Exception) {
+            errorCollector.logError(e, "Chat")
+            CommandResult.Error(e.message ?: "Failed to share session")
         }
-        modelSelectionUseCase.selectVariant(serverId, next)
     }
 
-    private suspend fun cycleTheme() {
-        val current = settingsRepository.theme.first()
-        val next = when (current) {
-            "system" -> "light"
-            "light" -> "dark"
-            else -> "dark"
+    private suspend fun unshareSession(serverId: String, sessionId: String): CommandResult {
+        return try {
+            sessionOpsUseCase.unshareSession(serverId, sessionId, getDirectory(sessionId))
+            CommandResult.Handled
+        } catch (e: Exception) {
+            errorCollector.logError(e, "Chat")
+            CommandResult.Error(e.message ?: "Failed to unshare session")
         }
-        settingsRepository.setTheme(next)
+    }
+
+    private suspend fun cycleVariant(serverId: String): CommandResult {
+        return try {
+            val variants = listOf("fast", "think", "agentic")
+            val current = modelSelectionUseCase.selectedVariant.value
+            val next = if (current == null) {
+                variants.first()
+            } else {
+                val idx = variants.indexOf(current)
+                if (idx >= 0 && idx < variants.lastIndex) variants[idx + 1] else null
+            }
+            modelSelectionUseCase.selectVariant(serverId, next)
+            CommandResult.Handled
+        } catch (e: Exception) {
+            errorCollector.logError(e, "Chat")
+            CommandResult.Error(e.message ?: "Failed to cycle variant")
+        }
+    }
+
+    private suspend fun cycleTheme(): CommandResult {
+        return try {
+            val current = settingsRepository.theme.first()
+            val next = when (current) {
+                "system" -> "light"
+                "light" -> "dark"
+                else -> "dark"
+            }
+            settingsRepository.setTheme(next)
+            CommandResult.Handled
+        } catch (e: Exception) {
+            errorCollector.logError(e, "Chat")
+            CommandResult.Error(e.message ?: "Failed to cycle theme")
+        }
     }
 
     companion object {

@@ -2,11 +2,9 @@ package me.xiaok.opencode.ui.screens.chat
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
@@ -23,8 +21,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -38,13 +36,13 @@ import androidx.compose.ui.unit.dp
  * Static state bridge for passing text between ChatScreen and FullScreenEditor
  * without involving navigation arguments.
  *
- * The caller writes [initialText] before navigating, then reads [resultText]
- * after popping back.  [consumeResult] clears the result after reading.
+ * The caller writes [initialText] before navigating, then observes [resultText]
+ * as a Compose [MutableState] after popping back.  [consumeResult] clears the result after reading.
  */
 object FullScreenEditorState {
-    var initialText: String = ""
+    var initialText: String by mutableStateOf("")
         private set
-    var resultText: String? = null
+    var resultText: String? by mutableStateOf(null)
         private set
 
     fun prepare(text: String) {
@@ -68,7 +66,7 @@ object FullScreenEditorState {
  * Reads [FullScreenEditorState.initialText] and writes back to
  * [FullScreenEditorState.setResult] on back/send.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FullScreenEditorRoute(
     onNavigateBack: () -> Unit,
@@ -81,12 +79,15 @@ fun FullScreenEditorRoute(
         onNavigateBack()
     }
 
+    BackHandler(onBack = { confirm() })
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
         Column(
             modifier = Modifier
+                .statusBarsPadding()
                 .imePadding(),
         ) {
             TopAppBar(

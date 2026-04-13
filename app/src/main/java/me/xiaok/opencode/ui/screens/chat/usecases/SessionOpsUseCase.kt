@@ -1,5 +1,7 @@
 package me.xiaok.opencode.ui.screens.chat.usecases
 
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.EventReducer
 import me.xiaok.opencode.data.repository.ServerRepository
@@ -31,6 +33,12 @@ class SessionOpsUseCase @Inject constructor(
     ): String {
         val server = serverRepository.getServer(serverId) ?: throw IllegalStateException("Server not found")
         val share = api.shareSession(server, sessionId, directory = sessionDirectory)
+        // Refresh EventReducer so UI reflects the shared state immediately
+        val updated = api.getSession(server, sessionId, directory = sessionDirectory)
+        eventReducer.processEvent(
+            serverId,
+            SseEvent.SessionUpdated(updated),
+        )
         return share.url
     }
 
@@ -39,7 +47,7 @@ class SessionOpsUseCase @Inject constructor(
         sessionId: String,
         sessionDirectory: String?,
     ) {
-        val server = serverRepository.getServer(serverId) ?: return
+        val server = serverRepository.getServer(serverId) ?: throw IllegalStateException("Server not found")
         api.unshareSession(server, sessionId, directory = sessionDirectory)
         val updated = api.getSession(server, sessionId, directory = sessionDirectory)
         eventReducer.processEvent(
@@ -73,14 +81,19 @@ class SessionOpsUseCase @Inject constructor(
         selectedModel: ModelRef?,
         sessionDirectory: String?,
     ) {
-        val server = serverRepository.getServer(serverId) ?: return
-        api.summarizeSession(
+        val server = serverRepository.getServer(serverId)
+            ?: throw IllegalStateException("Server not found: $serverId")
+        val model = selectedModel ?: throw IllegalStateException("No model selected")
+        val result = api.summarizeSession(
             conn = server,
             sessionId = sessionId,
-            providerId = selectedModel?.providerID?.ifBlank { null },
-            modelId = selectedModel?.modelID?.ifBlank { null },
+            providerId = model.providerID.ifBlank { throw IllegalStateException("No provider selected") },
+            modelId = model.modelID.ifBlank { throw IllegalStateException("No model ID selected") },
             directory = sessionDirectory,
         )
+        if (!result) {
+            throw IllegalStateException("Server declined summarize request for session $sessionId")
+        }
     }
 
     suspend fun renameSession(
@@ -141,6 +154,44 @@ class SessionOpsUseCase @Inject constructor(
     ) {
         val server = serverRepository.getServer(serverId) ?: return
         api.abortSession(server, sessionId, directory = sessionDirectory)
+
+        // Abort all descendant (child) sessions in parallel.
+        // The server does not cascade abort to child sessions, so we must
+        // explicitly abort each one on the client side.
+        val allSessions = eventReducer.sessions.value
+        val descendants = findAllDescendants(sessionId, allSessions)
+        if (descendants.isEmpty()) return
+
+        coroutineScope {
+            for (childId in descendants) {
+                launch {
+                    try {
+                        api.abortSession(server, childId, directory = sessionDirectory)
+                    } catch (_: Exception) {
+                        // Best-effort: don't let one failure block the rest
+                    }
+                }
+            }
+        }
+    }
+
+    private fun findAllDescendants(
+        parentSessionId: String,
+        allSessions: Map<String, Session>,
+    ): List<String> {
+        val result = mutableListOf<String>()
+        val queue = ArrayDeque<String>()
+        queue.add(parentSessionId)
+        while (queue.isNotEmpty()) {
+            val current = queue.removeFirst()
+            allSessions.values
+                .filter { it.parentID == current }
+                .forEach { child ->
+                    result.add(child.id)
+                    queue.add(child.id)
+                }
+        }
+        return result
     }
 
     suspend fun updateSession(
