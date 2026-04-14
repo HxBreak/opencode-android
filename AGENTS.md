@@ -1,8 +1,23 @@
-# Knowledge Base References
+# OpenCode Android - Knowledge Base
 
-This project references documentation and analysis notes stored in an Obsidian vault.
+**Generated:** 2026-04-14
+**Commit:** faa8d47
+**Branch:** main
 
-## Obsidian Vault Location
+## Overview
+
+OpenCode Android app - AI coding assistant mobile client with SSE event-driven architecture. Kotlin + Jetpack Compose + Hilt + Room + Ktor/OkHttp.
+
+## Architecture
+
+- **UI**: Single Activity + Jetpack Compose + Material 3
+- **DI**: Hilt
+- **Database**: Room + DataStore + EncryptedSharedPreferences
+- **Network**: Ktor Client + OkHttp (SSE support)
+- **Async**: Coroutines + Flow
+- **State**: Redux-like EventReducer pattern for SSE handling
+
+## Obsidian Vault
 
 ```
 /mnt/dav/obsidian/mine/opencode/
@@ -91,3 +106,55 @@ This project references documentation and analysis notes stored in an Obsidian v
 - **优先使用 `adb shell uiautomator dump`** 探查 Android 界面结构和元素
 - 只有在需要深度视觉分析或最终视觉确认时才使用截图（screencap）
 - uiautomator 能提供界面元素的文本、bounds、class 等结构化信息，比截图更高效
+
+## Where to Look
+
+| Task | Location | Notes |
+|------|----------|-------|
+| Chat logic | `ui/screens/chat/` | EventReducer + ViewModel + UseCases |
+| Server management | `ui/screens/server/` | 10 screen files, server config |
+| SSE handling | `data/repository/EventReducer.kt` | 891 lines - state engine |
+| Database | `data/local/db/` | Room + migrations |
+| API clients | `data/api/` | OkHttp SSE + Ktor |
+| Domain models | `domain/model/` | API contracts (Part, SseEvent) |
+
+## Code Map
+
+| Symbol | Type | Location | Refs | Role |
+|--------|------|----------|------|------|
+| ChatViewModel | ViewModel | `ui/screens/chat/` | 957 lines | Chat state management |
+| EventReducer | StateReducer | `data/repository/` | 891 lines | SSE event handling |
+| OpenCodeApi | Interface | `data/api/` | HTTP client interface |
+| SessionRepository | Repository | `data/repository/` | Session persistence |
+| ServerRepository | Repository | `data/repository/` | Server management |
+
+## Build/CI
+
+```bash
+# Debug build
+./gradlew assembleDebug
+
+# Unit tests
+./gradlew test
+
+# E2E tests
+./gradlew connectedDebugAndroidTest
+
+# Coverage
+./gradlew koverDebugReport
+```
+
+## File Violations
+
+- `ChatScreen.kt`: 1,322 lines (65% over limit)
+- `ChatViewModel.kt`: 957 lines (20% over limit)  
+- `EventReducer.kt`: 891 lines (11% over limit)
+- `FileBrowserScreen.kt`: 1,253 lines (57% over limit)
+- `HomeScreen.kt`: 822 lines (3% over limit)
+
+## Conventions
+
+- Route co-located with Screen (not separate Route.kt)
+- UseCases in `ui/screens/<name>/usecases/` (chat only)
+- ViewModels in screen directories
+- TestFixtures exempt from 800-line limit
