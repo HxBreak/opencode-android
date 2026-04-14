@@ -45,6 +45,10 @@ class ModelSelectionUseCase @Inject constructor(
             rawProviders.value = providerList.all.filter { it.id in connected }
             providerDefaults.value = providerList.default
             applyHiddenFilter()
+            // Ensure model defaults are applied after providers are loaded.
+            // This handles the race condition where loadConfiguredModel() may have
+            // called tryApplyModelDefaults() before providers were available,
+            // leaving selectedModel as null.
             tryApplyModelDefaults()
         } catch (_: Exception) { }
     }
