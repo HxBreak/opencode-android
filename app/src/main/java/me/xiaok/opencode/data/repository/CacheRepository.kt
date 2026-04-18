@@ -15,6 +15,7 @@ import me.xiaok.opencode.data.local.db.entity.MessageEntity
 import me.xiaok.opencode.data.local.db.entity.SessionEntity
 import me.xiaok.opencode.data.local.db.entity.SessionViewLog
 import me.xiaok.opencode.domain.model.*
+import me.xiaok.opencode.data.api.*
 import javax.inject.Inject
 import javax.inject.Singleton
 

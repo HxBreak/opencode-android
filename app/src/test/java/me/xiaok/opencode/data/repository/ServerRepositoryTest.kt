@@ -4,6 +4,8 @@ import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import me.xiaok.opencode.data.api.HealthResponse
+import me.xiaok.opencode.data.api.*
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.api.SseClient
 import me.xiaok.opencode.data.local.security.CredentialStore
@@ -100,7 +102,7 @@ class ServerRepositoryTest {
     private fun setupConnectMocks(
         server: ServerConnection = testServer,
     ) {
-        val healthResponse = OpenCodeApi.HealthResponse(healthy = true, version = "1.3.10")
+        val healthResponse = HealthResponse(healthy = true, version = "1.3.10")
         coEvery { api.health(server) } returns healthResponse
         coEvery { api.listSessions(server, roots = true) } returns testSessions
 
@@ -273,7 +275,7 @@ class ServerRepositoryTest {
         val repo = createRepository()
         coEvery { credentialStore.loadServers() } returns listOf(testServer)
         repo.addServer(testServer)
-        coEvery { api.health(testServer) } returns OpenCodeApi.HealthResponse(healthy = false)
+        coEvery { api.health(testServer) } returns HealthResponse(healthy = false)
 
         repo.connect(testServer.id)
 
@@ -301,7 +303,7 @@ class ServerRepositoryTest {
         val repo = createRepository()
         coEvery { credentialStore.loadServers() } returns listOf(testServer)
         repo.addServer(testServer)
-        coEvery { api.health(testServer) } returns OpenCodeApi.HealthResponse(healthy = true)
+        coEvery { api.health(testServer) } returns HealthResponse(healthy = true)
         coEvery { api.listSessions(testServer, roots = true) } throws RuntimeException("Parse error")
 
         repo.connect(testServer.id)
@@ -316,7 +318,7 @@ class ServerRepositoryTest {
         val repo = createRepository()
         coEvery { credentialStore.loadServers() } returns listOf(testServer)
         repo.addServer(testServer)
-        coEvery { api.health(testServer) } returns OpenCodeApi.HealthResponse(healthy = false)
+        coEvery { api.health(testServer) } returns HealthResponse(healthy = false)
 
         repo.connect(testServer.id)
 
@@ -470,7 +472,7 @@ class ServerRepositoryTest {
         val repo = createRepository()
         coEvery { credentialStore.loadServers() } returns listOf(testServer)
         repo.addServer(testServer)
-        coEvery { api.health(testServer) } returns OpenCodeApi.HealthResponse(healthy = true)
+        coEvery { api.health(testServer) } returns HealthResponse(healthy = true)
         coEvery { api.listSessions(testServer, roots = true) } returns testSessions
         mockkConstructor(SseClient::class)
         every { anyConstructed<SseClient>().connect() } returns flowOf(SseClient.ConnectionState.CONNECTED)

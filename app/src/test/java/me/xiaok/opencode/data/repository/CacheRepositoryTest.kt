@@ -5,6 +5,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import me.xiaok.opencode.data.api.MessagesPage
+import me.xiaok.opencode.data.api.*
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.local.db.dao.MessageDao
 import me.xiaok.opencode.data.local.db.dao.SessionDao
@@ -308,7 +310,7 @@ class CacheRepositoryTest {
         every { messageDao.getMessagesForSession("ses_1") } returns flowOf(listOf(entity))
         val api = mockk<OpenCodeApi>()
         val server = TestFixtures.testServerConnection()
-        coEvery { api.listMessages(server, "ses_1", limit = null) } returns OpenCodeApi.MessagesPage(listOf(message), null)
+        coEvery { api.listMessages(server, "ses_1", limit = null) } returns MessagesPage(listOf(message), null)
 
         repository.getMessagesWithRefresh("server1", "ses_1", api, server)
 
@@ -324,7 +326,7 @@ class CacheRepositoryTest {
         every { messageDao.getMessagesForSession("ses_1") } returns flowOf(listOf(entity))
         val api = mockk<OpenCodeApi>()
         val server = TestFixtures.testServerConnection()
-        coEvery { api.listMessages(server, "ses_1", limit = 50) } returns OpenCodeApi.MessagesPage(listOf(message), null)
+        coEvery { api.listMessages(server, "ses_1", limit = 50) } returns MessagesPage(listOf(message), null)
 
         repository.getMessagesWithRefresh("server1", "ses_1", api, server, limit = 50)
 

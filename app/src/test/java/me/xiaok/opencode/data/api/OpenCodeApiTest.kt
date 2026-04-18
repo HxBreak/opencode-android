@@ -829,7 +829,7 @@ class OpenCodeApiTest {
             respond("{}", HttpStatusCode.OK)
         }
         val api = createApi(engine)
-        api.runShell(testConn(), "ses_1", command = "ls", arguments = "-la")
+        api.runShell(testConn(), "ses_1", command = "ls", agent = "default")
     }
 
     @Test
