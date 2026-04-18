@@ -1,12 +1,11 @@
 package me.xiaok.opencode.ui.screens.chat
-
 import android.net.Uri
 import android.util.Log
-import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -14,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import me.xiaok.opencode.data.api.*
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.DraftRepository
 import me.xiaok.opencode.data.repository.EventReducer
@@ -36,94 +36,37 @@ import me.xiaok.opencode.utils.ErrorCollector
 import me.xiaok.opencode.utils.ImageCompressor
 import javax.inject.Inject
 
-data class ChildSessionInfo(
-    val session: Session,
-    val status: SessionStatus = SessionStatus.Idle,
-)
-
-data class ChatTurn(
-    val userMessage: Message,
-    val assistantMessages: List<Message> = emptyList(),
-    val turnId: String = userMessage.id,
-    val groupedParts: List<TurnPartGroup> = emptyList(),
-    val partLookup: Map<PartRef, Part> = emptyMap(),
-    val isCompactionOnly: Boolean = false,
-    val userParts: List<Part> = emptyList(),
-    val isSyntheticUser: Boolean = false,
-    val isActivelyReasoning: Boolean = false,
-    val childSessionIdLookup: Map<String, String> = emptyMap(),
-)
-
-data class ChatUiState(
-    val session: Session? = null,
-    val messages: List<Message> = emptyList(),
-    val parts: Map<String, List<Part>> = emptyMap(),
-    val turns: List<ChatTurn> = emptyList(),
-    val permissions: List<PermissionRequest> = emptyList(),
-    val questions: List<QuestionRequest> = emptyList(),
-    val sessionDiffs: List<FileDiff> = emptyList(),
-    val sessionStatus: SessionStatus = SessionStatus.Idle,
-    val isLoading: Boolean = false,
-    val isLoadingMore: Boolean = false,
-    val hasOlderMessages: Boolean = true,
-    val isSending: Boolean = false,
-    val error: String? = null,
-    val draftText: String = "",
-    val providers: List<Provider> = emptyList(),
-    val agents: List<AgentConfig> = emptyList(),
-    val commands: List<CommandInfo> = emptyList(),
-    val selectedAgent: String? = null,
-    val selectedModel: ModelRef? = null,
-    val selectedVariant: String? = null,
-    val contextUsagePercent: Int = 0,
-    val totalTokens: Long = 0L,
-    val totalCost: Double = 0.0,
-    val conversationTurns: Int = 0,
-    val draftImageUris: List<String> = emptyList(),
-    val attachedImages: List<AttachedImage> = emptyList(),
-    val mentions: List<MentionItem> = emptyList(),
-    val autoScrollEnabled: Boolean = true,
-    val childSessionIds: Map<String, String> = emptyMap(),
-    val childSessions: List<ChildSessionInfo> = emptyList(),
-    val chatFontSize: String = "medium",
-    val submittingQuestionIds: Set<String> = emptySet(),
-    val activePtyCount: Int = 0,
-    val commandMessage: String? = null,
-    val commandMessageId: Long = 0L,
-    val shareUrl: String? = null,
-    val shareDisabled: Boolean = false,
-    val todos: List<Todo> = emptyList(),
-)
-
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val api: OpenCodeApi,
-    private val eventReducer: EventReducer,
+    internal val eventReducer: EventReducer,
     private val serverRepository: ServerRepository,
     private val draftRepository: DraftRepository,
     private val settingsRepository: SettingsRepository,
     private val imageCompressor: ImageCompressor,
-    private val errorCollector: ErrorCollector,
+    internal val errorCollector: ErrorCollector,
     private val sessionStatsUseCase: SessionStatsUseCase,
     private val draftManagementUseCase: DraftManagementUseCase,
     private val mentionManagementUseCase: MentionManagementUseCase,
     private val permissionQuestionUseCase: PermissionQuestionUseCase,
     private val sessionNavigationUseCase: SessionNavigationUseCase,
-    private val sessionOpsUseCase: SessionOpsUseCase,
+    internal val sessionOpsUseCase: SessionOpsUseCase,
     private val sendMessageUseCase: SendMessageUseCase,
-    private val modelSelectionUseCase: ModelSelectionUseCase,
+    internal val modelSelectionUseCase: ModelSelectionUseCase,
     private val messageLoadingUseCase: MessageLoadingUseCase,
     private val chatCommandUseCase: ChatCommandUseCase,
 ) : ViewModel() {
 
-    private val serverId: String = savedStateHandle["serverId"]
+    internal val vmScope: CoroutineScope get() = viewModelScope
+
+    internal val serverId: String = savedStateHandle["serverId"]
         ?: throw IllegalArgumentException("serverId is required")
-    private val sessionId: String = savedStateHandle["sessionId"]
+    internal val sessionId: String = savedStateHandle["sessionId"]
         ?: throw IllegalArgumentException("sessionId is required")
 
     private val _isSending = MutableStateFlow(false)
-    private val _error = MutableStateFlow<String?>(null)
+    internal val _error = MutableStateFlow<String?>(null)
     private val _commandMessage = MutableStateFlow<String?>(null)
     private val _commandMessageId = MutableStateFlow(0L)
     private val _isLoading = MutableStateFlow(false)
@@ -133,6 +76,7 @@ class ChatViewModel @Inject constructor(
 
     private val _submittingQuestionIds = MutableStateFlow<Set<String>>(emptySet())
     private var _draftCleared = false
+    private var _draftSelectionRestored = false
 
     private val _attachedImages = MutableStateFlow<List<AttachedImage>>(emptyList())
     private val _mentions = MutableStateFlow<List<MentionItem>>(emptyList())
@@ -248,14 +192,15 @@ class ChatViewModel @Inject constructor(
                         val subSessionIds = draftResult.subSessionIds
                         val childSessions = draftResult.childSessions
                         val allPtys = draftResult.allPtys
-                        if (draft != null) {
-                            if (modelSelectionUseCase.selectedAgent.value == null && draft.selectedAgent != null) {
+                        if (draft != null && !_draftSelectionRestored) {
+                            _draftSelectionRestored = true
+                            if (draft.selectedAgent != null) {
                                 modelSelectionUseCase.selectedAgent.value = draft.selectedAgent
                             }
-                            if (modelSelectionUseCase.selectedModel.value == null && draft.selectedModel != null) {
+                            if (draft.selectedModel != null) {
                                 modelSelectionUseCase.selectedModel.value = draft.selectedModel
                             }
-                            if (modelSelectionUseCase.selectedVariant.value == null && draft.selectedVariant != null) {
+                            if (draft.selectedVariant != null) {
                                 modelSelectionUseCase.selectedVariant.value = draft.selectedVariant
                             }
                         }
@@ -730,91 +675,6 @@ class ChatViewModel @Inject constructor(
         _error.value = null
     }
 
-    private fun <T> executeSessionOp(
-        operationName: String,
-        onResult: ((T) -> Unit)? = null,
-        block: suspend (serverId: String, sessionId: String, directory: String?) -> T,
-    ) {
-        viewModelScope.launch {
-            try {
-                val directory = eventReducer.sessions.value[sessionId]?.directory
-                val result = block(serverId, sessionId, directory)
-                onResult?.invoke(result)
-            } catch (e: Exception) {
-                errorCollector.logError(e, "Chat")
-                _error.value = e.message ?: "Failed to $operationName"
-            }
-        }
-    }
-
-    fun refreshSessionDiffs() {
-        viewModelScope.launch {
-            try {
-                val directory = eventReducer.sessions.value[sessionId]?.directory
-                val workspace = eventReducer.sessions.value[sessionId]?.workspaceID
-                sessionOpsUseCase.refreshSessionDiffs(serverId, sessionId, directory, workspace)
-            } catch (e: Exception) {
-                Log.e(TAG, "refreshSessionDiffs: failed", e)
-            }
-        }
-    }
-
-    fun dismissDiffs() {
-        sessionOpsUseCase.dismissDiffs(serverId, sessionId)
-    }
-
-    fun forkSession(messageId: String, onResult: (String) -> Unit) {
-        executeSessionOp("fork session", onResult) { sId, sesId, dir ->
-            sessionOpsUseCase.forkSession(sId, sesId, messageId, dir)
-        }
-    }
-
-    fun shareSession(onResult: (String) -> Unit) {
-        executeSessionOp("share session", onResult) { sId, sesId, dir ->
-            sessionOpsUseCase.shareSession(sId, sesId, dir)
-        }
-    }
-
-    fun unshareSession() {
-        executeSessionOp<Unit>("unshare session") { sId, sesId, dir ->
-            sessionOpsUseCase.unshareSession(sId, sesId, dir)
-        }
-    }
-
-    fun revertSession(messageId: String) {
-        executeSessionOp<Unit>("revert session") { sId, sesId, dir ->
-            sessionOpsUseCase.revertSession(sId, sesId, messageId, dir)
-        }
-    }
-
-    fun summarizeSession() {
-        executeSessionOp<Unit>("summarize session") { sId, sesId, dir ->
-            sessionOpsUseCase.summarizeSession(sId, sesId, modelSelectionUseCase.selectedModel.value, dir)
-        }
-    }
-
-    fun unrevertSession() {
-        executeSessionOp<Unit>("unrevert session") { sId, sesId, dir ->
-            sessionOpsUseCase.unrevertSession(sId, sesId, dir)
-        }
-    }
-
-    fun renameSession(newTitle: String) {
-        executeSessionOp<Unit>("rename session") { sId, sesId, dir ->
-            sessionOpsUseCase.renameSession(sId, sesId, newTitle, dir)
-        }
-    }
-
-    fun deleteSession() {
-        executeSessionOp<Unit>("delete session") { sId, sesId, dir ->
-            sessionOpsUseCase.deleteSession(sId, sesId, dir)
-        }
-    }
-
-    suspend fun exportSession(): String {
-        return sessionOpsUseCase.exportSession(serverId, sessionId)
-    }
-
     private fun computeChildSessionIds(
         parentSessionId: String,
         messages: List<Message>,
@@ -853,102 +713,6 @@ class ChatViewModel @Inject constructor(
 
     fun dismissShareDialog() {
         _shareUrl.value = null
-    }
-
-    @VisibleForTesting
-    internal fun groupMessagesIntoTurns(
-        messages: List<Message>,
-        parts: Map<String, List<Part>> = emptyMap(),
-    ): List<ChatTurn> {
-        val turns = mutableListOf<ChatTurn>()
-        var currentTurn: ChatTurn? = null
-        // Track the last synthetic turn index so we can merge orphan assistants
-        // that share the same parentID into one synthetic turn.
-        var lastSyntheticIndex = -1
-
-        for (msg in messages) {
-            when {
-                msg.isUser -> {
-                    currentTurn?.let { turns.add(computeTurnRenderData(it, parts)) }
-                    currentTurn = ChatTurn(userMessage = msg)
-                    lastSyntheticIndex = -1
-                }
-                msg.isAssistant && msg.info.parentID == currentTurn?.userMessage?.id -> {
-                    currentTurn = currentTurn?.copy(
-                        assistantMessages = currentTurn.assistantMessages + msg
-                    )
-                }
-                else -> {
-                    // Orphan assistant: parentID mismatch or no current turn.
-                    // The user message this assistant replies to hasn't been loaded yet
-                    // (it's in an older page). Create a synthetic turn so the assistant
-                    // content is still visible, and merge with the previous synthetic turn
-                    // when they share the same parentID.
-                    currentTurn?.let { turns.add(computeTurnRenderData(it, parts)) }
-                    currentTurn = null
-
-                    val orphanParentId = msg.info.parentID
-                    if (lastSyntheticIndex >= 0 && orphanParentId != null
-                        && turns[lastSyntheticIndex].assistantMessages.firstOrNull()?.info?.parentID == orphanParentId
-                    ) {
-                        // Same orphan group — append to existing synthetic turn
-                        val existing = turns[lastSyntheticIndex]
-                        turns[lastSyntheticIndex] = computeTurnRenderData(
-                            existing.copy(assistantMessages = existing.assistantMessages + msg),
-                            parts,
-                        )
-                    } else {
-                        // New orphan group — create synthetic turn
-                        val syntheticUser = Message(info = MessageInfo(role = "user"))
-                        val syntheticTurn = ChatTurn(
-                            userMessage = syntheticUser,
-                            turnId = "synthetic_${msg.id}",
-                            assistantMessages = listOf(msg),
-                        )
-                        turns.add(computeTurnRenderData(syntheticTurn, parts))
-                        lastSyntheticIndex = turns.lastIndex
-                    }
-                }
-            }
-        }
-        currentTurn?.let { turns.add(computeTurnRenderData(it, parts)) }
-        return turns
-    }
-
-    private fun computeTurnRenderData(turn: ChatTurn, parts: Map<String, List<Part>>): ChatTurn {
-        val allAssistantParts = buildList {
-            for (msg in turn.assistantMessages) {
-                val msgParts = parts[msg.id] ?: msg.parts
-                for (part in msgParts) {
-                    if (renderable(part)) {
-                        add(PartRef(messageId = msg.id, partId = part.id) to part)
-                    }
-                }
-            }
-        }
-
-        val grouped = groupTurnParts(allAssistantParts)
-        val partLookup = allAssistantParts.associate { (ref, part) -> ref to part }
-
-        val userParts = (parts[turn.userMessage.id] ?: turn.userMessage.parts)
-            .ifEmpty { turn.userMessage.parts }
-        val isCompactionOnly = userParts.isNotEmpty() && userParts.all { it is Part.Compaction }
-        val isSyntheticUser = turn.userMessage.id.isEmpty()
-
-        val isActivelyReasoning = turn.assistantMessages.lastOrNull()?.let { lastMsg ->
-            val lastMsgParts = parts[lastMsg.id] ?: lastMsg.parts
-            lastMsgParts.any { it is Part.Reasoning } &&
-                !lastMsgParts.any { it is Part.Text && it.text.isNotBlank() }
-        } ?: false
-
-        return turn.copy(
-            groupedParts = grouped,
-            partLookup = partLookup,
-            isCompactionOnly = isCompactionOnly,
-            userParts = userParts,
-            isSyntheticUser = isSyntheticUser,
-            isActivelyReasoning = isActivelyReasoning,
-        )
     }
 
     companion object {

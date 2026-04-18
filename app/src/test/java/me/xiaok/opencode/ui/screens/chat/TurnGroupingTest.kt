@@ -1,34 +1,12 @@
 package me.xiaok.opencode.ui.screens.chat
 
-import androidx.lifecycle.SavedStateHandle
-import io.mockk.*
+import io.mockk.every
+import io.mockk.mockkStatic
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import me.xiaok.opencode.data.api.OpenCodeApi
-import me.xiaok.opencode.data.repository.CacheRepository
-import me.xiaok.opencode.data.repository.EventReducer
-import me.xiaok.opencode.data.repository.MetadataCache
-import me.xiaok.opencode.data.repository.ServerRepository
-import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.domain.model.*
 import me.xiaok.opencode.fixtures.TestFixtures
-import me.xiaok.opencode.ui.screens.chat.usecases.ChatCommandUseCase
-import me.xiaok.opencode.ui.screens.chat.usecases.DraftManagementUseCase
-import me.xiaok.opencode.ui.screens.chat.usecases.MentionManagementUseCase
-import me.xiaok.opencode.ui.screens.chat.usecases.MessageLoadingUseCase
-import me.xiaok.opencode.ui.screens.chat.usecases.ModelSelectionUseCase
-import me.xiaok.opencode.ui.screens.chat.usecases.PermissionQuestionUseCase
-import me.xiaok.opencode.ui.screens.chat.usecases.SendMessageUseCase
-import me.xiaok.opencode.ui.screens.chat.usecases.SessionNavigationUseCase
-import me.xiaok.opencode.ui.screens.chat.usecases.SessionOpsUseCase
-import me.xiaok.opencode.ui.screens.chat.usecases.SessionStatsUseCase
 import me.xiaok.opencode.utils.CoroutineTestRule
-import me.xiaok.opencode.utils.ErrorCollector
-import me.xiaok.opencode.utils.ImageCompressor
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
@@ -38,7 +16,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 // ==========================================================================
-// groupMessagesIntoTurns — tests via ChatViewModel internal function
+// groupMessagesIntoTurns — tests for top-level function in TurnGroupingUtils
 // ==========================================================================
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -49,30 +27,6 @@ class GroupMessagesIntoTurnsTest {
     @get:Rule
     val coroutineRule = CoroutineTestRule()
 
-    private val testServer = TestFixtures.testServerConnection()
-    private val testSession = TestFixtures.testSession()
-
-    private lateinit var api: OpenCodeApi
-    private lateinit var eventReducer: EventReducer
-    private lateinit var serverRepository: ServerRepository
-    private lateinit var cacheRepository: CacheRepository
-    private lateinit var draftRepository: me.xiaok.opencode.data.repository.DraftRepository
-    private lateinit var settingsRepository: SettingsRepository
-    private lateinit var imageCompressor: ImageCompressor
-    private lateinit var metadataCache: MetadataCache
-    private lateinit var errorCollector: ErrorCollector
-    private lateinit var testScope: TestScope
-    private lateinit var sessionStatsUseCase: SessionStatsUseCase
-    private lateinit var draftManagementUseCase: DraftManagementUseCase
-    private lateinit var mentionManagementUseCase: MentionManagementUseCase
-    private lateinit var permissionQuestionUseCase: PermissionQuestionUseCase
-    private lateinit var sessionNavigationUseCase: SessionNavigationUseCase
-    private lateinit var sessionOpsUseCase: SessionOpsUseCase
-    private lateinit var sendMessageUseCase: SendMessageUseCase
-    private lateinit var modelSelectionUseCase: ModelSelectionUseCase
-    private lateinit var messageLoadingUseCase: MessageLoadingUseCase
-    private lateinit var chatCommandUseCase: ChatCommandUseCase
-
     @Before
     fun setup() {
         mockkStatic(android.util.Log::class)
@@ -81,79 +35,9 @@ class GroupMessagesIntoTurnsTest {
         every { android.util.Log.e(any(), any(), any()) } returns 0
         every { android.util.Log.w(any(), any<String>()) } returns 0
         every { android.util.Log.w(any(), any<String>(), any()) } returns 0
-
-        testScope = coroutineRule.testScope
-        cacheRepository = mockk(relaxed = true)
-        eventReducer = EventReducer(cacheRepository, testScope)
-
-        api = mockk(relaxed = true)
-        serverRepository = mockk(relaxed = true)
-        draftRepository = mockk(relaxed = true)
-        settingsRepository = mockk(relaxed = true)
-        imageCompressor = mockk(relaxed = true)
-        metadataCache = mockk(relaxed = true)
-        errorCollector = mockk(relaxed = true)
-        sessionStatsUseCase = SessionStatsUseCase()
-        draftManagementUseCase = DraftManagementUseCase(draftRepository)
-        mentionManagementUseCase = MentionManagementUseCase(api, eventReducer, serverRepository)
-        permissionQuestionUseCase = PermissionQuestionUseCase(api, eventReducer, serverRepository, errorCollector)
-        sessionNavigationUseCase = SessionNavigationUseCase(api, eventReducer, serverRepository)
-        sessionOpsUseCase = SessionOpsUseCase(api, eventReducer, serverRepository, errorCollector)
-        sendMessageUseCase = SendMessageUseCase(api, eventReducer, serverRepository, draftRepository, settingsRepository, errorCollector)
-        modelSelectionUseCase = ModelSelectionUseCase(api, eventReducer, serverRepository, settingsRepository, metadataCache)
-        messageLoadingUseCase = MessageLoadingUseCase(api, eventReducer, serverRepository, settingsRepository, errorCollector)
-        chatCommandUseCase = ChatCommandUseCase(eventReducer, settingsRepository, sessionOpsUseCase, modelSelectionUseCase, errorCollector)
-
-        every { serverRepository.getServer(any()) } returns testServer
-        every { serverRepository.servers } returns MutableStateFlow(listOf(testServer))
-        coEvery { api.listMessages(any(), any(), limit = any(), before = any()) } returns OpenCodeApi.MessagesPage(emptyList(), null)
-        coEvery { api.getProviders(any()) } returns TestFixtures.testProviderList()
-        coEvery { api.getAgents(any()) } returns listOf(
-            TestFixtures.testAgentConfig(),
-            TestFixtures.testAgentConfig(name = "explore", mode = "subagent")
-        )
-        coEvery { api.getCommands(any()) } returns listOf(TestFixtures.testCommandInfo())
-        coEvery { metadataCache.getProviders(any(), any()) } returns TestFixtures.testProviderList()
-        coEvery { metadataCache.getAgents(any(), any()) } returns listOf(
-            TestFixtures.testAgentConfig(),
-            TestFixtures.testAgentConfig(name = "explore", mode = "subagent")
-        )
-        coEvery { metadataCache.getCommands(any(), any()) } returns listOf(TestFixtures.testCommandInfo())
-        coEvery { api.getSessionChildren(any(), any()) } returns emptyList()
-        every { settingsRepository.initialMessages } returns flowOf(50)
-        coEvery { settingsRepository.chatFontSize } returns flowOf("medium")
-        coEvery { settingsRepository.getRecentAgent(any()) } returns flowOf(null)
-        coEvery { settingsRepository.getRecentModel(any()) } returns flowOf(null)
-        coEvery { api.getConfig(any()) } returns kotlinx.serialization.json.JsonObject(emptyMap())
-        every { draftRepository.getDraft(any()) } returns MutableStateFlow(null)
     }
 
-    private fun createViewModel(): ChatViewModel {
-        val savedStateHandle = SavedStateHandle(mapOf(
-            "serverId" to testServer.id,
-            "sessionId" to testSession.id,
-        ))
-        return ChatViewModel(
-            savedStateHandle,
-            api,
-            eventReducer,
-            serverRepository,
-            draftRepository,
-            settingsRepository,
-            imageCompressor,
-            errorCollector,
-            sessionStatsUseCase,
-            draftManagementUseCase,
-            mentionManagementUseCase,
-            permissionQuestionUseCase,
-            sessionNavigationUseCase,
-            sessionOpsUseCase,
-            sendMessageUseCase,
-            modelSelectionUseCase,
-            messageLoadingUseCase,
-            chatCommandUseCase,
-        )
-    }
+    private val testScope get() = coroutineRule.testScope
 
     // --- Helper factories ---
 
@@ -178,19 +62,13 @@ class GroupMessagesIntoTurnsTest {
 
     @Test
     fun `empty message list returns empty turns`() = testScope.runTest {
-        val vm = createViewModel()
-        advanceUntilIdle()
-
-        val turns = vm.groupMessagesIntoTurns(emptyList())
+        val turns = groupMessagesIntoTurns(emptyList())
         assertTrue(turns.isEmpty())
     }
 
     @Test
     fun `single user message produces 1 turn with 0 assistant messages`() = testScope.runTest {
-        val vm = createViewModel()
-        advanceUntilIdle()
-
-        val turns = vm.groupMessagesIntoTurns(listOf(userMsg("u1")))
+        val turns = groupMessagesIntoTurns(listOf(userMsg("u1")))
         assertEquals(1, turns.size)
         assertEquals("u1", turns[0].userMessage.id)
         assertTrue(turns[0].assistantMessages.isEmpty())
@@ -198,16 +76,13 @@ class GroupMessagesIntoTurnsTest {
 
     @Test
     fun `user with 3 assistants produces 1 turn with 3 assistant messages`() = testScope.runTest {
-        val vm = createViewModel()
-        advanceUntilIdle()
-
         val messages = listOf(
             userMsg("u1"),
             assistantMsg("a1", "u1"),
             assistantMsg("a2", "u1"),
             assistantMsg("a3", "u1"),
         )
-        val turns = vm.groupMessagesIntoTurns(messages)
+        val turns = groupMessagesIntoTurns(messages)
 
         assertEquals(1, turns.size)
         assertEquals("u1", turns[0].userMessage.id)
@@ -217,16 +92,13 @@ class GroupMessagesIntoTurnsTest {
 
     @Test
     fun `2 conversation rounds produce 2 turns`() = testScope.runTest {
-        val vm = createViewModel()
-        advanceUntilIdle()
-
         val messages = listOf(
             userMsg("u1"),
             assistantMsg("a1", "u1"),
             userMsg("u2"),
             assistantMsg("a2", "u2"),
         )
-        val turns = vm.groupMessagesIntoTurns(messages)
+        val turns = groupMessagesIntoTurns(messages)
 
         assertEquals(2, turns.size)
         assertEquals("u1", turns[0].userMessage.id)
@@ -237,10 +109,7 @@ class GroupMessagesIntoTurnsTest {
 
     @Test
     fun `compaction-only user message produces 1 turn with empty assistants`() = testScope.runTest {
-        val vm = createViewModel()
-        advanceUntilIdle()
-
-        val turns = vm.groupMessagesIntoTurns(listOf(compactionUserMsg("u_compact")))
+        val turns = groupMessagesIntoTurns(listOf(compactionUserMsg("u_compact")))
         assertEquals(1, turns.size)
         assertEquals("u_compact", turns[0].userMessage.id)
         assertTrue(turns[0].assistantMessages.isEmpty())
@@ -248,13 +117,10 @@ class GroupMessagesIntoTurnsTest {
 
     @Test
     fun `orphan assistant with null parentID is silently dropped when no current turn exists`() = testScope.runTest {
-        val vm = createViewModel()
-        advanceUntilIdle()
-
         val messages = listOf(
             assistantMsgOrphan("a_orphan"),
         )
-        val turns = vm.groupMessagesIntoTurns(messages)
+        val turns = groupMessagesIntoTurns(messages)
 
         // parentID=null matches currentTurn?.userMessage?.id (both null) but currentTurn is null,
         // so currentTurn?.copy() returns null and the assistant is silently dropped.
@@ -263,16 +129,13 @@ class GroupMessagesIntoTurnsTest {
 
     @Test
     fun `orphan assistant with mismatched parentID is silently dropped`() = testScope.runTest {
-        val vm = createViewModel()
-        advanceUntilIdle()
-
         val messages = listOf(
             userMsg("u1"),
             assistantMsg("a1", "u1"),
             // This assistant's parentID doesn't match u1 — orphan, dropped
             assistantMsg("a_stray", "u_nonexistent"),
         )
-        val turns = vm.groupMessagesIntoTurns(messages)
+        val turns = groupMessagesIntoTurns(messages)
 
         // Only the first turn: u1 + a1. The stray assistant is dropped.
         assertEquals(1, turns.size)

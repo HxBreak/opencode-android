@@ -2,11 +2,12 @@ package me.xiaok.opencode.ui.screens.chat.usecases
 
 import io.mockk.*
 import kotlinx.coroutines.test.runTest
+import me.xiaok.opencode.data.api.*
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.CacheRepository
 import me.xiaok.opencode.data.repository.EventReducer
 import me.xiaok.opencode.data.repository.ServerRepository
-import me.xiaok.opencode.domain.model.TestFixtures
+import me.xiaok.opencode.fixtures.TestFixtures
 import me.xiaok.opencode.utils.ErrorCollector
 import org.junit.After
 import org.junit.Assert.*
@@ -62,7 +63,7 @@ class SessionOpsUseCaseTest {
     @Test(expected = IllegalStateException::class)
     fun `summarizeSession throws when API returns false`() = runTest {
         every { serverRepository.getServer(any()) } returns testServer
-        coEvery { api.summarizeSession(any(), any()) } returns false
+        coEvery { api.summarizeSession(any(), any(), any(), any(), any()) } returns false
 
         useCase.summarizeSession(
             serverId = testServer.id,
@@ -75,7 +76,7 @@ class SessionOpsUseCaseTest {
     @Test
     fun `summarizeSession succeeds when API returns true`() = runTest {
         every { serverRepository.getServer(any()) } returns testServer
-        coEvery { api.summarizeSession(any(), any()) } returns true
+        coEvery { api.summarizeSession(any(), any(), any(), any(), any()) } returns true
 
         useCase.summarizeSession(
             serverId = testServer.id,
@@ -84,6 +85,6 @@ class SessionOpsUseCaseTest {
             sessionDirectory = null,
         )
 
-        coVerify { api.summarizeSession(any(), "session1") }
+        coVerify { api.summarizeSession(any(), eq("session1"), any(), any(), any()) }
     }
 }

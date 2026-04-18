@@ -14,6 +14,8 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import me.xiaok.opencode.data.api.MessagesPage
+import me.xiaok.opencode.data.api.*
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.CacheRepository
 import me.xiaok.opencode.data.repository.DraftRepository
@@ -114,7 +116,7 @@ class ChatViewModelTest {
 
         every { serverRepository.getServer(any()) } returns testServer
         every { serverRepository.servers } returns MutableStateFlow(listOf(testServer))
-        coEvery { api.listMessages(any(), any(), limit = any(), before = any()) } returns OpenCodeApi.MessagesPage(emptyList(), null)
+        coEvery { api.listMessages(any(), any(), limit = any(), before = any()) } returns MessagesPage(emptyList(), null)
         coEvery { api.getProviders(any()) } returns TestFixtures.testProviderList()
         coEvery { api.getAgents(any()) } returns listOf(
             TestFixtures.testAgentConfig(),
@@ -180,7 +182,7 @@ class ChatViewModelTest {
     @Test
     fun `loadMessages loads from API and sets messages in EventReducer`() = testScope.runTest {
         val messages = listOf(testUserMessage, testMessage)
-        coEvery { api.listMessages(any(), any(), limit = any()) } returns OpenCodeApi.MessagesPage(messages, null)
+        coEvery { api.listMessages(any(), any(), limit = any()) } returns MessagesPage(messages, null)
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -223,7 +225,7 @@ class ChatViewModelTest {
     @Test
     fun `sendMessage calls API with text parts and clears draft`() = testScope.runTest {
         coEvery { api.promptAsync(any(), any(), parts = any(), agent = any(), model = any()) } just Runs
-        coEvery { api.listMessages(any(), any(), limit = any()) } returns OpenCodeApi.MessagesPage(emptyList(), null)
+        coEvery { api.listMessages(any(), any(), limit = any()) } returns MessagesPage(emptyList(), null)
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -271,14 +273,14 @@ class ChatViewModelTest {
         vm.sendMessage("!ls -la")
         advanceUntilIdle()
 
-        coVerify { api.runShell(any(), any(), "ls -la") }
+        coVerify { api.runShell(any(), any(), "ls -la", any()) }
         coVerify(exactly = 0) { api.promptAsync(any(), any(), parts = any(), agent = any(), model = any()) }
     }
 
     @Test
     fun `sendMessage with blank text and no images is a no-op`() = testScope.runTest {
         coEvery { api.promptAsync(any(), any(), parts = any(), agent = any(), model = any()) } just Runs
-        coEvery { api.listMessages(any(), any(), limit = any()) } returns OpenCodeApi.MessagesPage(emptyList(), null)
+        coEvery { api.listMessages(any(), any(), limit = any()) } returns MessagesPage(emptyList(), null)
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -649,7 +651,7 @@ class ChatViewModelTest {
 
     @Test
     fun `summarizeSession calls API`() = testScope.runTest {
-        coEvery { api.summarizeSession(any(), any()) } returns true
+        coEvery { api.summarizeSession(any(), any(), any(), any(), any()) } returns true
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -657,7 +659,7 @@ class ChatViewModelTest {
         vm.summarizeSession()
         advanceUntilIdle()
 
-        coVerify { api.summarizeSession(any(), testSession.id) }
+        coVerify { api.summarizeSession(any(), eq(testSession.id), any(), any(), any()) }
     }
 
     // ====================================================================
@@ -748,10 +750,10 @@ class ChatViewModelTest {
             info = TestFixtures.testMessageInfo(id = "msg_old1")
         )
 
-        coEvery { api.listMessages(any(), any(), limit = any()) } returns OpenCodeApi.MessagesPage(initialMessages, "cursor_1")
+        coEvery { api.listMessages(any(), any(), limit = any()) } returns MessagesPage(initialMessages, "cursor_1")
         coEvery {
             api.listMessages(any(), any(), limit = any(), before = "cursor_1")
-        } returns OpenCodeApi.MessagesPage(listOf(olderMessage), null)
+        } returns MessagesPage(listOf(olderMessage), null)
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -769,8 +771,8 @@ class ChatViewModelTest {
         val manyMessages = List(50) { i ->
             TestFixtures.testMessage(info = TestFixtures.testMessageInfo(id = "msg_$i"))
         }
-        coEvery { api.listMessages(any(), any(), limit = any()) } returns OpenCodeApi.MessagesPage(manyMessages, "cursor_1")
-        coEvery { api.listMessages(any(), any(), limit = any(), before = "cursor_1") } returns OpenCodeApi.MessagesPage(emptyList(), null)
+        coEvery { api.listMessages(any(), any(), limit = any()) } returns MessagesPage(manyMessages, "cursor_1")
+        coEvery { api.listMessages(any(), any(), limit = any(), before = "cursor_1") } returns MessagesPage(emptyList(), null)
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -792,8 +794,8 @@ class ChatViewModelTest {
         val manyMessages = List(50) { i ->
             TestFixtures.testMessage(info = TestFixtures.testMessageInfo(id = "msg_$i"))
         }
-        coEvery { api.listMessages(any(), any(), limit = any()) } returns OpenCodeApi.MessagesPage(manyMessages, "cursor_1")
-        coEvery { api.listMessages(any(), any(), limit = any(), before = any()) } returns OpenCodeApi.MessagesPage(emptyList(), null)
+        coEvery { api.listMessages(any(), any(), limit = any()) } returns MessagesPage(manyMessages, "cursor_1")
+        coEvery { api.listMessages(any(), any(), limit = any(), before = any()) } returns MessagesPage(emptyList(), null)
 
         val vm = createViewModel()
         advanceUntilIdle()
