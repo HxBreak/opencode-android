@@ -1,6 +1,7 @@
 package me.xiaok.opencode.ui.screens.chat.usecases
 
 import android.util.Log
+import me.xiaok.opencode.data.api.*
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.EventReducer
 import me.xiaok.opencode.data.repository.MetadataCache
@@ -189,8 +190,8 @@ class ModelSelectionUseCase @Inject constructor(
         }
 
         val modelToApply: ModelRef? = when {
-            configuredModel.value?.let { isValidModelRef(it) } == true -> configuredModel.value
             savedModel.value?.let { isValidModelRef(it) } == true -> savedModel.value
+            configuredModel.value?.let { isValidModelRef(it) } == true -> configuredModel.value
             else -> {
                 val defaults = providerDefaults.value
                 if (defaults.isNotEmpty()) {
