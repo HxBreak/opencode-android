@@ -80,7 +80,7 @@ private fun ErrorLogScreen(
     onDeleteById: (Long) -> Unit,
     onDeleteAll: () -> Unit,
 ) {
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var showClearAllDialog by remember { mutableStateOf(false) }
     var expandedId by remember { mutableStateOf<Long?>(null) }
 
