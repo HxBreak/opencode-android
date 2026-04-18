@@ -2,31 +2,13 @@ package me.xiaok.opencode.data.repository
 
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import me.xiaok.opencode.domain.model.*
-import kotlin.reflect.KClass
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Central state management (Redux / Event Sourcing pattern).
- * All SSE events flow through processEvent(), updating reactive StateFlows.
- *
- * SSE Event → EventReducer → StateFlow → ViewModel → Compose UI
- *
- * Error resilience:
- * - Out-of-order events: upsert — later event always wins
- * - Duplicate events: idempotent by design
- * - Unknown event type: log + skip
- * - Malformed event JSON: catch per-event, continue processing stream
- */
 @Singleton
 class EventReducer @Inject constructor(
     private val cacheRepository: CacheRepository,
@@ -72,401 +54,149 @@ class EventReducer @Inject constructor(
     val projectInfo: StateFlow<Project?> = _projectInfo.asStateFlow()
 
     private val _sessionErrors = MutableStateFlow<Map<String, String>>(emptyMap())
-    /** Map of sessionId → last error message. Cleared when session status changes away from error. */
     val sessionErrors: StateFlow<Map<String, String>> = _sessionErrors.asStateFlow()
 
-    /** Remove a session's error from the map after it has been displayed to the user. */
+    private val _ptySessions = MutableStateFlow<Map<String, Map<String, PtyInfo>>>(emptyMap())
+    val ptySessions: StateFlow<Map<String, Map<String, PtyInfo>>> = _ptySessions.asStateFlow()
+
+    private val _installationVersion = MutableStateFlow<String?>(null)
+    val installationVersion: StateFlow<String?> = _installationVersion.asStateFlow()
+
+    private val _installationUpdateAvailable = MutableStateFlow<String?>(null)
+    val installationUpdateAvailable: StateFlow<String?> = _installationUpdateAvailable.asStateFlow()
+
+    private val _mcpBrowserOpenFailed = MutableStateFlow<Pair<String, String>?>(null)
+    val mcpBrowserOpenFailed: StateFlow<Pair<String, String>?> = _mcpBrowserOpenFailed.asStateFlow()
+
+    private val _lastEditedFile = MutableStateFlow<String?>(null)
+    val lastEditedFile: StateFlow<String?> = _lastEditedFile.asStateFlow()
+
+    private val _unreadSessions = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    val unreadSessions: StateFlow<Map<String, Set<String>>> = _unreadSessions.asStateFlow()
+
+    // === Internal Accessors (for sub-reducers) ===
+    internal val messagesFlow get() = _messages
+    internal val partsFlow get() = _parts
+    internal val sessionsFlow get() = _sessions
+    internal val serverSessionsFlow get() = _serverSessions
+    internal val activeServersFlow get() = _activeServers
+    internal val sessionStatusesFlow get() = _sessionStatuses
+    internal val sessionErrorsFlow get() = _sessionErrors
+    internal val sessionDiffsFlow get() = _sessionDiffs
+    internal val unreadSessionsFlow get() = _unreadSessions
+    internal val permissionsFlow get() = _permissions
+    internal val questionsFlow get() = _questions
+    internal val todosFlow get() = _todos
+    internal val ptySessionsFlow get() = _ptySessions
+    internal val scopeAccessor get() = scope
+    internal val cacheRepositoryAccessor get() = cacheRepository
+
+    // === Sub-Reducers ===
+    internal val ptyReducer = PtyReducer(this)
+    internal val interactionReducer = InteractionReducer(this)
+    internal val sessionReducer = SessionReducer(this)
+    internal val messageReducer = MessageReducer(this)
+
+    // === Public Error Helper ===
+
     fun clearSessionError(sessionId: String) {
         _sessionErrors.value = _sessionErrors.value.toMutableMap().apply {
             remove(sessionId)
         }
     }
 
-    // === PTY State ===
-
-    private val _ptySessions = MutableStateFlow<Map<String, Map<String, PtyInfo>>>(emptyMap())
-    /** Map of serverId → (ptyId → PtyInfo). Tracks all active PTY sessions per server. */
-    val ptySessions: StateFlow<Map<String, Map<String, PtyInfo>>> = _ptySessions.asStateFlow()
-
-    // === Installation State ===
-
-    private val _installationVersion = MutableStateFlow<String?>(null)
-    /** Current server installation version (from installation.updated event). */
-    val installationVersion: StateFlow<String?> = _installationVersion.asStateFlow()
-
-    private val _installationUpdateAvailable = MutableStateFlow<String?>(null)
-    /** Latest available version when an update is detected (from installation.update-available event). */
-    val installationUpdateAvailable: StateFlow<String?> = _installationUpdateAvailable.asStateFlow()
-
-    // === MCP Browser State ===
-
-    private val _mcpBrowserOpenFailed = MutableStateFlow<Pair<String, String>?>(null)
-    /** Last mcp.browser.open.failed event: (mcpName, url). Null when no active failure. */
-    val mcpBrowserOpenFailed: StateFlow<Pair<String, String>?> = _mcpBrowserOpenFailed.asStateFlow()
-
-    // === File Events ===
-
-    private val _lastEditedFile = MutableStateFlow<String?>(null)
-    /** Last file edited by AI agent (from file.edited event). */
-    val lastEditedFile: StateFlow<String?> = _lastEditedFile.asStateFlow()
-
-    // === Unread Tracking ===
-
-    private val _unreadSessions = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
-    /** Map of serverId → set of sessionIds with unread messages */
-    val unreadSessions: StateFlow<Map<String, Set<String>>> = _unreadSessions.asStateFlow()
-
-    /**
-     * Compute unread sessions by comparing session.time.updated against persisted lastViewedAt.
-     * Should be called after sessions are loaded or when a session is updated.
-     */
-    suspend fun computeUnreadSessions(serverId: String) {
-        val viewLogs = cacheRepository.getSessionViewLogs(serverId)
-        val serverSessionIds = _serverSessions.value[serverId] ?: emptySet()
-
-        val unreadIds = serverSessionIds.filterNotNull().filter { sessionId ->
-            val session = _sessions.value[sessionId] ?: return@filter false
-            val updatedAt = session.time.updated
-            if (updatedAt <= 0) return@filter false
-            // Unread if session was never viewed, or updated after last view
-            val lastViewed = viewLogs[sessionId]
-            lastViewed == null || updatedAt > lastViewed
-        }.toSet()
-
-        _unreadSessions.value = _unreadSessions.value.toMutableMap().apply {
-            put(serverId, unreadIds)
-        }
-    }
-
-    /** Mark a session as currently viewed (clears unread for that session) */
-    suspend fun markSessionViewed(serverId: String, sessionId: String) {
-        cacheRepository.markSessionViewed(serverId, sessionId)
-        // Optimistically clear unread for this session immediately
-        val current = _unreadSessions.value[serverId] ?: emptySet()
-        if (sessionId in current) {
-            _unreadSessions.value = _unreadSessions.value.toMutableMap().apply {
-                put(serverId, current - sessionId)
-            }
-        }
-    }
-
-    /** Clear viewed session when navigating away — no-op, persistence handles tracking */
-    fun clearViewedSession(serverId: String) {
-        // No-op: persistence handles actual tracking
-    }
-
-    // === Delta Batching (streaming text performance) ===
-
-    /** Accumulated text deltas keyed by "messageId:partId", flushed periodically */
-    private val pendingDeltas = mutableMapOf<String, StringBuilder>()
-
-    /** Scheduled flush job — cancelled and rescheduled on each delta */
-    private var flushJob: Job? = null
-
-    /** Flush interval in milliseconds — balances responsiveness vs. recomposition overhead */
-    private val deltaFlushIntervalMs = 50L
-
-    /**
-     * Apply all accumulated deltas to [_parts] immediately.
-     * Called by the scheduled flush job, and before any non-delta part operation
-     * that needs a consistent view (part updated/removed, message removed, etc.).
-     */
-    private fun flushPendingDeltas() {
-        if (pendingDeltas.isEmpty()) return
-        val snapshot = pendingDeltas.toMap()
-        pendingDeltas.clear()
-        flushJob = null
-
-        for ((key, accumulated) in snapshot) {
-            val (messageId, partId) = key.split(":", limit = 2)
-            val current = _parts.value[messageId] ?: continue
-            val updated = current.map { part ->
-                if (part.id != partId) return@map part
-                when (part) {
-                    is Part.Text -> part.copy(text = part.text + accumulated.toString())
-                    is Part.Reasoning -> part.copy(text = part.text + accumulated.toString())
-                    else -> part
-                }
-            }
-            _parts.value = _parts.value.toMutableMap().apply {
-                put(messageId, updated)
-            }
-        }
-    }
-
-    /** Flush deltas for specific messages (used when setting parts from API response). */
-    private fun flushPendingDeltasForMessages(messageIds: Set<String>) {
-        if (pendingDeltas.isEmpty()) return
-        val toFlush = pendingDeltas.keys.filter { key ->
-            val messageId = key.substringBefore(":")
-            messageId in messageIds
-        }
-        if (toFlush.isEmpty()) return
-        for (key in toFlush) {
-            val accumulated = pendingDeltas.remove(key) ?: continue
-            val (messageId, partId) = key.split(":", limit = 2)
-            val current = _parts.value[messageId] ?: continue
-            val updated = current.map { part ->
-                if (part.id != partId) return@map part
-                when (part) {
-                    is Part.Text -> part.copy(text = part.text + accumulated.toString())
-                    is Part.Reasoning -> part.copy(text = part.text + accumulated.toString())
-                    else -> part
-                }
-            }
-            _parts.value = _parts.value.toMutableMap().apply {
-                put(messageId, updated)
-            }
-        }
-    }
-
     // === Main Dispatch ===
 
-    /**
-     * Main dispatch — routes 24 event types to state updates.
-     * @param serverId The server this event came from
-     * @param event The deserialized SSE event
-     */
     fun processEvent(serverId: String, event: SseEvent) {
         Log.d(TAG, "processEvent: server=$serverId, type=${event::class.simpleName}")
         try {
             when (event) {
-                // Server events
                 is SseEvent.ServerConnected -> onServerConnected(serverId)
-                is SseEvent.ServerHeartbeat -> { /* No state change, just reset timeout */ }
+                is SseEvent.ServerHeartbeat -> { }
                 is SseEvent.ServerInstanceDisposed -> onServerInstanceDisposed(serverId)
 
-                // Session events
-                is SseEvent.SessionCreated -> onSessionCreated(serverId, event.session)
-                is SseEvent.SessionUpdated -> onSessionUpdated(event.session)
-                is SseEvent.SessionDeleted -> onSessionDeleted(serverId, event.session)
-                is SseEvent.SessionStatusChanged -> onSessionStatus(event.sessionId, event.status)
-                is SseEvent.SessionIdle -> onSessionIdle(event.sessionId)
-                is SseEvent.SessionDiff -> onSessionDiff(event.sessionId, event.diffs)
-                is SseEvent.SessionError -> onSessionError(event.sessionId, event.error)
+                is SseEvent.SessionCreated -> sessionReducer.onSessionCreated(serverId, event.session)
+                is SseEvent.SessionUpdated -> sessionReducer.onSessionUpdated(event.session)
+                is SseEvent.SessionDeleted -> sessionReducer.onSessionDeleted(serverId, event.session)
+                is SseEvent.SessionStatusChanged -> sessionReducer.onSessionStatus(event.sessionId, event.status)
+                is SseEvent.SessionIdle -> sessionReducer.onSessionIdle(event.sessionId)
+                is SseEvent.SessionDiff -> sessionReducer.onSessionDiff(event.sessionId, event.diffs)
+                is SseEvent.SessionError -> sessionReducer.onSessionError(event.sessionId, event.error)
 
-                // Message events
-                is SseEvent.MessageUpdated -> onMessageUpdated(event.message)
-                is SseEvent.MessageRemoved -> onMessageRemoved(event.sessionId, event.messageId)
-                is SseEvent.MessagePartUpdated -> onMessagePartUpdated(event.part)
-                is SseEvent.MessagePartDelta -> onMessagePartDelta(
+                is SseEvent.MessageUpdated -> messageReducer.onMessageUpdated(event.message)
+                is SseEvent.MessageRemoved -> messageReducer.onMessageRemoved(event.sessionId, event.messageId)
+                is SseEvent.MessagePartUpdated -> messageReducer.onMessagePartUpdated(event.part)
+                is SseEvent.MessagePartDelta -> messageReducer.onMessagePartDelta(
                     event.sessionId, event.messageId, event.partId, event.field, event.delta
                 )
-                is SseEvent.MessagePartRemoved -> onMessagePartRemoved(
+                is SseEvent.MessagePartRemoved -> messageReducer.onMessagePartRemoved(
                     event.sessionId, event.messageId, event.partId
                 )
 
-                // Interaction events
-                is SseEvent.PermissionAsked -> onPermissionAsked(event.permission)
-                is SseEvent.PermissionReplied -> onPermissionReplied(event.sessionId, event.requestId)
-                is SseEvent.QuestionAsked -> onQuestionAsked(event.question)
-                is SseEvent.QuestionReplied -> onQuestionReplied(event.sessionId, event.requestId)
-                is SseEvent.QuestionRejected -> onQuestionRejected(event.sessionId, event.requestId)
+                is SseEvent.PermissionAsked -> interactionReducer.onPermissionAsked(event.permission)
+                is SseEvent.PermissionReplied -> interactionReducer.onPermissionReplied(event.sessionId, event.requestId)
+                is SseEvent.QuestionAsked -> interactionReducer.onQuestionAsked(event.question)
+                is SseEvent.QuestionReplied -> interactionReducer.onQuestionReplied(event.sessionId, event.requestId)
+                is SseEvent.QuestionRejected -> interactionReducer.onQuestionRejected(event.sessionId, event.requestId)
 
-                // Other events
                 is SseEvent.TodoUpdated -> onTodoUpdated(event.sessionId, event.todos)
                 is SseEvent.VcsBranchUpdated -> onVcsBranchUpdated(event.branch)
-                is SseEvent.LspUpdated -> { /* Client-side, ignore */ }
+                is SseEvent.LspUpdated -> { }
                 is SseEvent.ProjectUpdated -> onProjectUpdated(event.project)
 
-                // PTY events
-                is SseEvent.PtyCreated -> onPtyCreated(serverId, event.info)
-                is SseEvent.PtyUpdated -> onPtyUpdated(serverId, event.info)
-                is SseEvent.PtyExited -> onPtyExited(serverId, event.id, event.exitCode)
-                is SseEvent.PtyDeleted -> onPtyDeleted(serverId, event.id)
+                is SseEvent.PtyCreated -> ptyReducer.onPtyCreated(serverId, event.info)
+                is SseEvent.PtyUpdated -> ptyReducer.onPtyUpdated(serverId, event.info)
+                is SseEvent.PtyExited -> ptyReducer.onPtyExited(serverId, event.id, event.exitCode)
+                is SseEvent.PtyDeleted -> ptyReducer.onPtyDeleted(serverId, event.id)
 
-                // MCP events
                 is SseEvent.McpBrowserOpenFailed -> onMcpBrowserOpenFailed(event.mcpName, event.url)
                 is SseEvent.McpToolsChanged -> onMcpToolsChanged(event.server)
-
-                // File events
                 is SseEvent.FileEdited -> onFileEdited(event.file)
-
-                // Installation events
                 is SseEvent.InstallationUpdated -> onInstallationUpdated(event.version)
                 is SseEvent.InstallationUpdateAvailable -> onInstallationUpdateAvailable(event.version)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing event ${event::class.simpleName}", e)
         }
-
-        // Forward event to cache for Room invalidation
         cacheRepository.onSseEvent(serverId, event)
     }
 
-    // === Bulk Init Methods ===
+    // === Cleanup ===
 
-    /** Bulk init sessions from REST API */
-    fun setSessions(serverId: String, sessions: List<Session>) {
-        val sessionMap = _sessions.value.toMutableMap()
-        val sessionIdSet = mutableSetOf<String>()
-        sessions.forEach { session ->
-            sessionMap[session.id] = session
-            sessionIdSet.add(session.id)
-        }
-        _sessions.value = sessionMap
-        _serverSessions.value = _serverSessions.value.toMutableMap().apply {
-            put(serverId, sessionIdSet)
-        }
-        _activeServers.value = _activeServers.value + serverId
-        // Recompute unread based on persisted view logs
-        scope.launch {
-            computeUnreadSessions(serverId)
-        }
-    }
-
-    /**
-     * Bulk init messages from REST API.
-     * Uses merge semantics instead of full overwrite to avoid race condition:
-     * SSE may have already appended new messages between the REST request and response.
-     * REST data is authoritative for messages it contains (upsert), but SSE-only messages are preserved.
-     * After merging, messages are sorted by creation time to ensure correct ordering.
-     */
-    fun setMessages(sessionId: String, messages: List<Message>) {
-        val current = _messages.value[sessionId] ?: emptyList()
-        if (current.isEmpty()) {
-            // No existing messages — safe to do full write
-            _messages.value = _messages.value.toMutableMap().apply {
-                put(sessionId, messages)
-            }
-        } else {
-            // Merge: REST messages as base, preserve SSE-only messages not in REST response
-            val restById = messages.associateBy { it.id }
-            val sseOnly = current.filter { it.id !in restById }
-            // Sort by creation time to ensure correct order regardless of source
-            val merged = (messages + sseOnly).sortedBy { it.info.time.created }
-            Log.d(TAG, "setMessages merge: sessionId=$sessionId, rest=${messages.size}, sseOnly=${sseOnly.size}, merged=${merged.size}")
-            _messages.value = _messages.value.toMutableMap().apply {
-                put(sessionId, merged)
-            }
-        }
-    }
-
-    /** Prepend older messages to the front of the list (for reverse pagination) */
-    fun prependMessages(sessionId: String, olderMessages: List<Message>) {
-        val current = _messages.value[sessionId] ?: emptyList()
-        // Deduplicate: keep existing messages, only add ones with new IDs
-        val existingIds = current.map { it.id }.toSet()
-        val newMessages = olderMessages.filter { it.id !in existingIds }
-        _messages.value = _messages.value.toMutableMap().apply {
-            put(sessionId, newMessages + current)
-        }
-    }
-
-    /** Bulk init parts for a message, merging with any existing SSE-accumulated parts */
-    fun setParts(messageId: String, parts: List<Part>) {
-        // Flush pending deltas for this message before overwriting with API data
-        flushPendingDeltasForMessages(setOf(messageId))
-        val existing = _parts.value[messageId] ?: emptyList()
-        val merged = if (existing.isEmpty()) parts else mergeParts(existing, parts)
-        _parts.value = _parts.value.toMutableMap().apply {
-            put(messageId, merged)
-        }
-    }
-
-    /** Cleanup on server disconnect */
     fun clearForServer(serverId: String) {
-        // Flush any pending deltas before clearing server state
-        flushPendingDeltas()
-
         val sessionIds = _serverSessions.value[serverId] ?: emptySet()
-
-        // Clear pending deltas for sessions belonging to this server
-        val messageIdsToClear = mutableSetOf<String>()
-        for ((key, _) in pendingDeltas) {
-            val messageId = key.substringBefore(":")
-            // Check if this messageId belongs to a session being cleared
-            // (We can't easily determine this without traversing _parts, so flush all to be safe)
-        }
-        pendingDeltas.clear()
-        flushJob?.cancel()
-        flushJob = null
-
-        // Remove sessions
-        _sessions.value = _sessions.value.toMutableMap().apply {
-            sessionIds.forEach { remove(it) }
-        }
-
-        // Remove messages
-        _messages.value = _messages.value.toMutableMap().apply {
-            sessionIds.forEach { remove(it) }
-        }
-
-        // Remove statuses
-        _sessionStatuses.value = _sessionStatuses.value.toMutableMap().apply {
-            sessionIds.forEach { remove(it) }
-        }
-
-        // Remove permissions
-        _permissions.value = _permissions.value.toMutableMap().apply {
-            sessionIds.forEach { remove(it) }
-        }
-
-        // Remove questions
-        _questions.value = _questions.value.toMutableMap().apply {
-            sessionIds.forEach { remove(it) }
-        }
-
-        // Remove todos
+        messageReducer.clearForServer(sessionIds)
+        sessionReducer.clearForServer(serverId)
+        interactionReducer.clearForServer(sessionIds)
+        ptyReducer.clearForServer(serverId)
         _todos.value = _todos.value.toMutableMap().apply {
             sessionIds.forEach { remove(it) }
         }
-
-        // Remove diffs
-        _sessionDiffs.value = _sessionDiffs.value.toMutableMap().apply {
-            sessionIds.forEach { remove(it) }
-        }
-
-        // Remove server-sessions mapping
-        _serverSessions.value = _serverSessions.value.toMutableMap().apply {
-            remove(serverId)
-        }
-
-        // Remove unread state
-        _unreadSessions.value = _unreadSessions.value.toMutableMap().apply {
-            remove(serverId)
-        }
-
-        // Remove persisted view logs for this server
-        scope.launch {
-            cacheRepository.deleteSessionViewLogsForServer(serverId)
-        }
-
-        // Remove from active servers
-        _activeServers.value = _activeServers.value - serverId
-
-        // Remove PTY sessions for this server
-        _ptySessions.value = _ptySessions.value.toMutableMap().apply {
-            remove(serverId)
-        }
     }
 
-    /** Full state reset */
     fun clearAll() {
-        flushJob?.cancel()
-        flushJob = null
-        pendingDeltas.clear()
-        _activeServers.value = emptySet()
-        _serverSessions.value = emptyMap()
-        _sessions.value = emptyMap()
-        _sessionStatuses.value = emptyMap()
-        _messages.value = emptyMap()
-        _parts.value = emptyMap()
-        _sessionDiffs.value = emptyMap()
-        _permissions.value = emptyMap()
-        _questions.value = emptyMap()
+        messageReducer.clearAll()
+        sessionReducer.clearAll()
+        interactionReducer.clearAll()
+        ptyReducer.clearAll()
         _todos.value = emptyMap()
         _vcsBranch.value = null
         _projectInfo.value = null
-        _unreadSessions.value = emptyMap()
-        _ptySessions.value = emptyMap()
         _installationVersion.value = null
         _installationUpdateAvailable.value = null
         _mcpBrowserOpenFailed.value = null
         _lastEditedFile.value = null
     }
 
-    // === Optimistic Updates ===
+    // === Bulk Init Proxies ===
+
+    fun setSessions(serverId: String, sessions: List<Session>) = sessionReducer.setSessions(serverId, sessions)
+    fun setMessages(sessionId: String, messages: List<Message>) = messageReducer.setMessages(sessionId, messages)
+    fun prependMessages(sessionId: String, olderMessages: List<Message>) = messageReducer.prependMessages(sessionId, olderMessages)
+    fun setParts(messageId: String, parts: List<Part>) = messageReducer.setParts(messageId, parts)
+    fun setPtys(serverId: String, ptys: List<PtyInfo>) = ptyReducer.setPtys(serverId, ptys)
+
+    // === Optimistic Update Proxies ===
 
     fun updateSessionStatus(sessionId: String, status: SessionStatus) {
         _sessionStatuses.value = _sessionStatuses.value.toMutableMap().apply {
@@ -474,36 +204,20 @@ class EventReducer @Inject constructor(
         }
     }
 
-    fun removeQuestion(sessionId: String, requestId: String) {
-        val current = _questions.value[sessionId] ?: return
-        _questions.value = _questions.value.toMutableMap().apply {
-            put(sessionId, current.filterNot { it.id == requestId })
-        }
+    fun removeQuestion(sessionId: String, requestId: String) = interactionReducer.removeQuestion(sessionId, requestId)
+    fun setQuestions(sessionId: String, questions: List<QuestionRequest>) = interactionReducer.setQuestions(sessionId, questions)
+    fun removePermission(sessionId: String, requestId: String) = interactionReducer.removePermission(sessionId, requestId)
+    fun updateTodos(sessionId: String, todos: List<Todo>) {
+        _todos.value = _todos.value.toMutableMap().apply { put(sessionId, todos) }
     }
 
-    /**
-     * Initialize questions for a session from REST API.
-     * Only adds questions not already present (avoids duplicates from SSE).
-     */
-    fun setQuestions(sessionId: String, questions: List<QuestionRequest>) {
-        val current = _questions.value[sessionId] ?: emptyList()
-        val existingIds = current.map { it.id }.toSet()
-        val newQuestions = questions.filterNot { it.id in existingIds }
-        Log.d("EventReducer", "setQuestions: sessionId=$sessionId, current=${current.size}, incoming=${questions.size}, new=${newQuestions.size}")
-        if (newQuestions.isEmpty()) return
-        _questions.value = _questions.value.toMutableMap().apply {
-            put(sessionId, current + newQuestions)
-        }
-    }
+    // === Unread Tracking Proxies ===
 
-    fun removePermission(sessionId: String, requestId: String) {
-        val current = _permissions.value[sessionId] ?: return
-        _permissions.value = _permissions.value.toMutableMap().apply {
-            put(sessionId, current.filterNot { it.id == requestId })
-        }
-    }
+    suspend fun markSessionViewed(serverId: String, sessionId: String) = sessionReducer.markSessionViewed(serverId, sessionId)
+    suspend fun computeUnreadSessions(serverId: String) = sessionReducer.computeUnreadSessions(serverId)
+    fun clearViewedSession(serverId: String) { }
 
-    // === Private Event Handlers: Server ===
+    // === Small Handlers (kept here) ===
 
     private fun onServerConnected(serverId: String) {
         _activeServers.value = _activeServers.value + serverId
@@ -513,347 +227,12 @@ class EventReducer @Inject constructor(
         clearForServer(serverId)
     }
 
-    // === Private Event Handlers: Session ===
-
-    private fun onSessionCreated(serverId: String, session: Session) {
-        _sessions.value = _sessions.value.toMutableMap().apply {
-            put(session.id, session)
-        }
-        _serverSessions.value = _serverSessions.value.toMutableMap().apply {
-            put(serverId, (get(serverId) ?: emptySet()) + session.id)
-        }
-        _activeServers.value = _activeServers.value + serverId
-        // Recompute unread — new session may have updated > lastViewedAt
-        scope.launch {
-            computeUnreadSessions(serverId)
-        }
-    }
-
-    private fun onSessionUpdated(session: Session) {
-        _sessions.value = _sessions.value.toMutableMap().apply {
-            put(session.id, session)
-        }
-        // Recompute unread — session.time.updated may have changed
-        val serverId = _serverSessions.value.entries.find { session.id in it.value }?.key
-        if (serverId != null) {
-            scope.launch {
-                computeUnreadSessions(serverId)
-            }
-        }
-    }
-
-    private fun onSessionDeleted(serverId: String, session: Session) {
-        _sessions.value = _sessions.value.toMutableMap().apply { remove(session.id) }
-        _messages.value = _messages.value.toMutableMap().apply { remove(session.id) }
-        _sessionStatuses.value = _sessionStatuses.value.toMutableMap().apply { remove(session.id) }
-        _permissions.value = _permissions.value.toMutableMap().apply { remove(session.id) }
-        _questions.value = _questions.value.toMutableMap().apply { remove(session.id) }
-        _todos.value = _todos.value.toMutableMap().apply { remove(session.id) }
-        _sessionDiffs.value = _sessionDiffs.value.toMutableMap().apply { remove(session.id) }
-        _serverSessions.value = _serverSessions.value.toMutableMap().apply {
-            put(serverId, (get(serverId) ?: emptySet()) - session.id)
-        }
-        _unreadSessions.value = _unreadSessions.value.toMutableMap().apply {
-            val current = get(serverId) ?: emptySet()
-            put(serverId, current - session.id)
-        }
-        // Clean up persisted view log
-        scope.launch {
-            cacheRepository.deleteSessionViewLog(serverId, session.id)
-        }
-    }
-
-    private fun onSessionStatus(sessionId: String, status: SessionStatus) {
-        Log.d(TAG, "onSessionStatus: sessionId=$sessionId, status=$status")
-        _sessionStatuses.value = _sessionStatuses.value.toMutableMap().apply {
-            put(sessionId, status)
-        }
-    }
-
-    private fun onSessionIdle(sessionId: String) {
-        _sessionStatuses.value = _sessionStatuses.value.toMutableMap().apply {
-            put(sessionId, SessionStatus.Idle)
-        }
-    }
-
-    private fun onSessionDiff(sessionId: String, diffs: List<FileDiff>) {
-        _sessionDiffs.value = _sessionDiffs.value.toMutableMap().apply {
-            put(sessionId, diffs)
-        }
-    }
-
-    private fun onSessionError(sessionId: String?, error: ErrorInfo?) {
-        val errorMessage = error?.message ?: "Unknown error"
-        Log.e(TAG, "Session error (session=${sessionId ?: "unknown"}): $errorMessage")
-        // Store error in sessionErrors StateFlow for notification
-        if (sessionId != null && errorMessage.isNotEmpty()) {
-            _sessionErrors.value = _sessionErrors.value.toMutableMap().apply {
-                put(sessionId, errorMessage)
-            }
-        }
-    }
-
-    // === Private Event Handlers: Message ===
-
-    private fun onMessageUpdated(message: Message) {
-        val sessionId = message.info.sessionID
-        val current = _messages.value[sessionId] ?: emptyList()
-        val index = current.indexOfFirst { it.info.id == message.info.id }
-        val updated = if (index >= 0) {
-            Log.d(TAG, "onMessageUpdated: UPDATE sessionId=$sessionId, msgId=${message.info.id}, role=${message.info.role}, parts=${message.parts.size}")
-            current.toMutableList().apply { set(index, message) }
-        } else {
-            Log.d(TAG, "onMessageUpdated: APPEND sessionId=$sessionId, msgId=${message.info.id}, role=${message.info.role}, parts=${message.parts.size}")
-            (current + message).sortedBy { it.info.time.created }
-        }
-        _messages.value = _messages.value.toMutableMap().apply {
-            put(sessionId, updated)
-        }
-
-        // Sync inline parts from message to _parts StateFlow so UI can render them.
-        // Merge with existing parts (SSE streaming may have accumulated content already).
-        if (message.parts.isNotEmpty()) {
-            val messageId = message.info.id
-            // Flush pending deltas before merging — otherwise onMessageUpdated's full-text
-            // snapshot and a subsequent flushPendingDeltas() blind append will produce
-            // duplicated characters during streaming.
-            flushPendingDeltasForMessages(setOf(messageId))
-            val existingParts = _parts.value[messageId] ?: emptyList()
-            val merged = mergeParts(existingParts, message.parts)
-            _parts.value = _parts.value.toMutableMap().apply {
-                put(messageId, merged)
-            }
-        }
-
-        // Track unread: when an assistant message arrives, recompute unread
-        // based on persisted lastViewedAt vs session.time.updated
-        if (message.isAssistant) {
-            val serverId = _serverSessions.value.entries.find { sessionId in it.value }?.key
-            if (serverId != null) {
-                scope.launch {
-                    computeUnreadSessions(serverId)
-                }
-            }
-        }
-    }
-
-    /**
-     * Merge two part lists by ID. Preserves existing streaming content when possible.
-     *
-     * Strategy: For each part ID, if both existing and incoming have it:
-     * - Text/Reasoning parts: keep whichever has MORE text (streaming accumulates, so longer = newer)
-     * - All other parts: prefer incoming (it's the authoritative update from server)
-     *
-     * Parts only in existing are preserved (preserves streaming content).
-     * Parts only in incoming are added.
-     */
-    private val HIDDEN_PART_TYPES: Set<KClass<out Part>> = setOf(
-        Part.StepStart::class,
-        Part.StepFinish::class,
-    )
-
-    private fun mergeParts(existing: List<Part>, incoming: List<Part>): List<Part> {
-        val existingById = existing.associateBy { it.id }
-        val result = mutableListOf<Part>()
-        val seen = mutableSetOf<String>()
-
-        // First pass: process incoming parts, preferring existing streaming content
-        for (part in incoming) {
-            if (part::class in HIDDEN_PART_TYPES) continue
-            val existingPart = existingById[part.id]
-            if (existingPart != null) {
-                // Merge: prefer the one with more content for streaming text
-                val merged = when {
-                    part is Part.Text && existingPart is Part.Text ->
-                        if (existingPart.text.length >= part.text.length) existingPart else part
-                    part is Part.Reasoning && existingPart is Part.Reasoning ->
-                        if (existingPart.text.length >= part.text.length) existingPart else part
-                    else -> part // Non-streaming parts: incoming is authoritative
-                }
-                result.add(merged)
-            } else {
-                result.add(part)
-            }
-            seen.add(part.id)
-        }
-
-        // Second pass: add existing parts not in incoming
-        for (part in existing) {
-            if (part.id !in seen && part::class !in HIDDEN_PART_TYPES) {
-                result.add(part)
-            }
-        }
-        return result
-    }
-
-    private fun onMessageRemoved(sessionId: String, messageId: String) {
-        // Flush pending deltas before removing a message
-        flushPendingDeltas()
-        val current = _messages.value[sessionId] ?: return
-        _messages.value = _messages.value.toMutableMap().apply {
-            put(sessionId, current.filterNot { it.info.id == messageId })
-        }
-        _parts.value = _parts.value.toMutableMap().apply { remove(messageId) }
-    }
-
-    private fun onMessagePartUpdated(part: Part) {
-        if (part::class in HIDDEN_PART_TYPES) return
-        // Flush any pending deltas for this part before applying the full update
-        flushPendingDeltas()
-        val messageId = part.messageId
-        val current = _parts.value[messageId] ?: emptyList()
-        val index = current.indexOfFirst { it.id == part.id }
-        Log.d(TAG, "onMessagePartUpdated: msgId=$messageId, partId=${part.id}, type=${part::class.simpleName}, isUpdate=${index >= 0}")
-        val updated = if (index >= 0) {
-            current.toMutableList().apply { set(index, part) }
-        } else {
-            current + part
-        }
-        _parts.value = _parts.value.toMutableMap().apply {
-            put(messageId, updated)
-        }
-    }
-
-    private fun onMessagePartDelta(
-        sessionId: String,
-        messageId: String,
-        partId: String,
-        field: String,
-        delta: String,
-    ) {
-        // Stub creation: if parts don't exist yet, create immediately (can't batch without existing part)
-        var current = _parts.value[messageId]
-        if (current == null) {
-            Log.d(TAG, "onMessagePartDelta: STUB msgId=$messageId, partId=$partId, field=$field, deltaLen=${delta.length}")
-            val stub = when (field) {
-                "text" -> Part.Text(id = partId, sessionId = sessionId, messageId = messageId, text = delta)
-                else -> return
-            }
-            _parts.value = _parts.value.toMutableMap().apply {
-                put(messageId, listOf(stub))
-            }
-            return
-        }
-
-        // Batch: accumulate delta in memory, schedule flush
-        if (field != "text") return // Only batch text field deltas
-        val key = "$messageId:$partId"
-        pendingDeltas.getOrPut(key) { StringBuilder() }.append(delta)
-        flushJob?.cancel()
-        flushJob = scope.launch(Dispatchers.IO) {
-            delay(deltaFlushIntervalMs)
-            flushPendingDeltas()
-        }
-    }
-
-    private fun onMessagePartRemoved(sessionId: String, messageId: String, partId: String) {
-        // Flush pending deltas before removing a part
-        flushPendingDeltas()
-        val current = _parts.value[messageId] ?: return
-        _parts.value = _parts.value.toMutableMap().apply {
-            put(messageId, current.filterNot { it.id == partId })
-        }
-    }
-
-    // === Private Event Handlers: Interaction ===
-
-    private fun onPermissionAsked(permission: PermissionRequest) {
-        val sessionId = permission.sessionID
-        val current = _permissions.value[sessionId] ?: emptyList()
-        _permissions.value = _permissions.value.toMutableMap().apply {
-            put(sessionId, current + permission)
-        }
-    }
-
-    private fun onPermissionReplied(sessionId: String, requestId: String) {
-        removePermission(sessionId, requestId)
-    }
-
-    private fun onQuestionAsked(question: QuestionRequest) {
-        val sessionId = question.sessionID
-        Log.d("EventReducer", "onQuestionAsked: id=${question.id}, sessionID=$sessionId, questions=${question.questions.size}")
-        val current = _questions.value[sessionId] ?: emptyList()
-        _questions.value = _questions.value.toMutableMap().apply {
-            put(sessionId, current + question)
-        }
-    }
-
-    private fun onQuestionReplied(sessionId: String, requestId: String) {
-        removeQuestion(sessionId, requestId)
-    }
-
-    private fun onQuestionRejected(sessionId: String, requestId: String) {
-        removeQuestion(sessionId, requestId)
-    }
-
-    // === Private Event Handlers: Other ===
-
     private fun onTodoUpdated(sessionId: String, todoList: List<Todo>) {
-        _todos.value = _todos.value.toMutableMap().apply {
-            put(sessionId, todoList)
-        }
+        _todos.value = _todos.value.toMutableMap().apply { put(sessionId, todoList) }
     }
 
-    /** Public helper to seed todos from cached tool parts (cold-start). */
-    fun updateTodos(sessionId: String, todos: List<Todo>) {
-        onTodoUpdated(sessionId, todos)
-    }
-
-    private fun onVcsBranchUpdated(branch: String) {
-        _vcsBranch.value = branch
-    }
-
-    private fun onProjectUpdated(project: Project) {
-        _projectInfo.value = project
-    }
-
-    /** Bulk init PTY sessions from REST API */
-    fun setPtys(serverId: String, ptys: List<PtyInfo>) {
-        val ptyMap = ptys.associateBy { it.id }
-        _ptySessions.value = _ptySessions.value.toMutableMap().apply {
-            put(serverId, ptyMap)
-        }
-    }
-
-    // === Private Event Handlers: PTY ===
-
-    private fun onPtyCreated(serverId: String, info: PtyInfo) {
-        Log.d(TAG, "onPtyCreated: server=$serverId, ptyId=${info.id}, title=${info.title}")
-        val serverPtys = _ptySessions.value[serverId] ?: emptyMap()
-        _ptySessions.value = _ptySessions.value.toMutableMap().apply {
-            put(serverId, serverPtys + (info.id to info))
-        }
-    }
-
-    private fun onPtyUpdated(serverId: String, info: PtyInfo) {
-        Log.d(TAG, "onPtyUpdated: server=$serverId, ptyId=${info.id}, status=${info.status}")
-        val serverPtys = _ptySessions.value[serverId] ?: emptyMap()
-        if (info.id in serverPtys) {
-            _ptySessions.value = _ptySessions.value.toMutableMap().apply {
-                put(serverId, serverPtys + (info.id to info))
-            }
-        }
-    }
-
-    private fun onPtyExited(serverId: String, ptyId: String, exitCode: Int) {
-        Log.d(TAG, "onPtyExited: server=$serverId, ptyId=$ptyId, exitCode=$exitCode")
-        val serverPtys = _ptySessions.value[serverId] ?: return
-        val existing = serverPtys[ptyId] ?: return
-        // Update status to "exited" in place
-        _ptySessions.value = _ptySessions.value.toMutableMap().apply {
-            put(serverId, serverPtys + (ptyId to existing.copy(status = "exited")))
-        }
-    }
-
-    private fun onPtyDeleted(serverId: String, ptyId: String) {
-        Log.d(TAG, "onPtyDeleted: server=$serverId, ptyId=$ptyId")
-        val serverPtys = _ptySessions.value[serverId] ?: return
-        _ptySessions.value = _ptySessions.value.toMutableMap().apply {
-            put(serverId, serverPtys - ptyId)
-        }
-    }
-
-    // === Private Event Handlers: MCP ===
+    private fun onVcsBranchUpdated(branch: String) { _vcsBranch.value = branch }
+    private fun onProjectUpdated(project: Project) { _projectInfo.value = project }
 
     private fun onMcpBrowserOpenFailed(mcpName: String, url: String) {
         Log.d(TAG, "onMcpBrowserOpenFailed: mcpName=$mcpName, url=$url")
@@ -862,18 +241,12 @@ class EventReducer @Inject constructor(
 
     private fun onMcpToolsChanged(server: String) {
         Log.d(TAG, "onMcpToolsChanged: server=$server — tools list for MCP server changed, UI should refresh")
-        // No state to update directly — ViewModels should observe this event via cacheRepository
-        // or implement their own refresh trigger
     }
-
-    // === Private Event Handlers: File ===
 
     private fun onFileEdited(file: String) {
         Log.d(TAG, "onFileEdited: file=$file")
         _lastEditedFile.value = file
     }
-
-    // === Private Event Handlers: Installation ===
 
     private fun onInstallationUpdated(version: String) {
         Log.d(TAG, "onInstallationUpdated: version=$version")
