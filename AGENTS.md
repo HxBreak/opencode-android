@@ -17,12 +17,6 @@ OpenCode Android app - AI coding assistant mobile client with SSE event-driven a
 - **Async**: Coroutines + Flow
 - **State**: Redux-like EventReducer pattern for SSE handling
 
-## Obsidian Vault
-
-```
-/mnt/dav/obsidian/mine/opencode/
-```
-
 ## Code Quality Rules
 
 ### File Size Limit: 800 Lines
@@ -82,6 +76,39 @@ OpenCode Android app - AI coding assistant mobile client with SSE event-driven a
   - **Composable 副作用** — `LaunchedEffect` 中的异常必须流向 ViewModel，不允许在 Composable 里静默处理
 - **豁免**：仅在用户显式要求忽略某类异常时，才允许省略处理逻辑
 
+### Surgical Changes
+
+**硬性约束**：只改必须改的，绝不触碰无关代码。
+
+- 每一行变更都必须能追溯到用户的原始请求
+- **禁止**"顺手"重构、优化、格式化相邻代码 — 即使它们看起来不完美
+- **禁止**删除已有的死代码（除非用户要求），但可以提及
+- 匹配现有代码风格，即使你不会那样写
+- 如果你的变更导致某些 import/变量/函数变成孤儿，**必须**清理这些你造成的孤儿
+- 验证标准：review diff 时，每处改动都应能解释"为什么这个改动是用户要求的"
+
+### Simplicity First
+
+**态度要求**：追求最少代码解决问题，不做投机性设计。
+
+- 不添加用户没要求的功能
+- 如果有更简单的方案存在，**必须先说出来**让用户选择，不要默默选择复杂方案
+- 如果任务有歧义、多种解读，列出选项让用户决定，不要自行假设
+- 判断标准：问自己"一个资深工程师会认为这过度设计了吗？"如果是，简化
+
+### Goal-Driven Planning
+
+**格式要求**：实现计划使用可验证的步骤格式。
+
+- 多步骤任务的每个步骤必须声明验证方式：
+  ```
+  1. [步骤描述] → verify: [如何确认完成]
+  2. [步骤描述] → verify: [如何确认完成]
+  3. [步骤描述] → verify: [如何确认完成]
+  ```
+- 弱成功标准（"让它能跑"）不够，需要具体（"测试 X 通过且 `assembleDebug` 成功"）
+- 成功标准允许独立循环验证，不需要反复确认方向
+
 ## E2E Test Execution
 
 **必须使用 Gradle 传递参数运行 androidTest**，因为 `adb shell am instrument -e` 无法正确传递含特殊字符（`!`, `&`, `^`, `*`）的参数值，Android 的 shell 会错误展开这些字符。
@@ -89,17 +116,16 @@ OpenCode Android app - AI coding assistant mobile client with SSE event-driven a
 ```bash
 # 正确方式：通过 Gradle 传递 instrumentation arguments
 ./gradlew connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.serverName=TestServer \
-  -Pandroid.testInstrumentationRunnerArguments.serverUrl=http://192.168.31.52:4000 \
-  -Pandroid.testInstrumentationRunnerArguments.username=xiaok \
-  -Pandroid.testInstrumentationRunnerArguments.password='R4&nW7*bJ3^fH6!' \
-  -Pandroid.testInstrumentationRunnerArguments.projectPath=/home/xiaok/projects/test
+  -Pandroid.testInstrumentationRunnerArguments.serverName=<NAME> \
+  -Pandroid.testInstrumentationRunnerArguments.serverUrl=<URL> \
+  -Pandroid.testInstrumentationRunnerArguments.username=<USER> \
+  -Pandroid.testInstrumentationRunnerArguments.password=<PASS> \
+  -Pandroid.testInstrumentationRunnerArguments.projectPath=<PATH>
 ```
 
 - **禁止**使用 `adb shell am instrument -e` 传递含特殊字符的参数
 - 参数值不含空格时可省略引号，含空格时必须用引号包裹
-- 当前测试设备: Pixel 4a (5G), 192.168.31.218:5555
-- 测试服务器: 192.168.31.52:4000
+- 测试设备和服务器信息见全局 AGENTS.md
 
 ## Device Testing Rules
 
