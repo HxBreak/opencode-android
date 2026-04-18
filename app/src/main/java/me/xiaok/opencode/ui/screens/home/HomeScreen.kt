@@ -20,19 +20,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -43,11 +34,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -79,7 +68,6 @@ import me.xiaok.opencode.ui.theme.StatusError
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.UUID
 
 // ---------------------------------------------------------------------------
 // Route: wires ViewModel to the stateless HomeScreen
@@ -141,7 +129,7 @@ fun HomeScreen(
     onNavigateToServerSettings: (serverId: String) -> Unit,
     onNavigateToSettings: () -> Unit,
 ) {
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingServer by remember { mutableStateOf<ServerConnection?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -482,205 +470,7 @@ private fun ServerCard(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Add / Edit Server Dialog — simplified: Name+URL core, advanced options collapsible
-// ---------------------------------------------------------------------------
 
-@Composable
-fun AddEditServerDialog(
-    existingServer: ServerConnection?,
-    onSave: (ServerConnection) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val isEdit = existingServer != null
-
-    var name by remember { mutableStateOf(existingServer?.name ?: "") }
-    var url by remember { mutableStateOf(existingServer?.baseUrl ?: "") }
-    var username by remember { mutableStateOf(existingServer?.username ?: "") }
-    var password by remember { mutableStateOf(existingServer?.password ?: "") }
-    var autoConnect by remember { mutableStateOf(existingServer?.autoConnect ?: true) }
-    var passwordVisible by remember { mutableStateOf(false) }
-    var showAdvanced by remember { mutableStateOf(false) }
-
-    val nameError = name.isBlank()
-    val urlError = url.isBlank()
-
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = if (isEdit) "Edit Server" else "Add Server",
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                ),
-            )
-        },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                // Core fields
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    isError = nameError,
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Computer,
-                            contentDescription = null,
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("URL") },
-                    singleLine = true,
-                    isError = urlError,
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Link,
-                            contentDescription = null,
-                        )
-                    },
-                    supportingText = {
-                        Text(
-                            text = "http:// will be prepended if no scheme is provided",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                // Advanced toggle
-                TextButton(
-                    onClick = { showAdvanced = !showAdvanced },
-                ) {
-                    Text(
-                        text = if (showAdvanced) "Hide advanced" else "Advanced",
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                }
-
-                // Advanced fields
-                if (showAdvanced) {
-                    OutlinedTextField(
-                        value = username,
-                        onValueChange = { username = it },
-                        label = { Text("Username (optional)") },
-                        singleLine = true,
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = null,
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Password (optional)") },
-                        singleLine = true,
-                        visualTransformation = if (passwordVisible) {
-                            androidx.compose.ui.text.input.VisualTransformation.None
-                        } else {
-                            androidx.compose.ui.text.input.PasswordVisualTransformation()
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = null,
-                            )
-                        },
-                        trailingIcon = {
-                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                Icon(
-                                    imageVector = if (passwordVisible) {
-                                        Icons.Default.VisibilityOff
-                                    } else {
-                                        Icons.Default.Visibility
-                                    },
-                                    contentDescription = if (passwordVisible) {
-                                        "Hide password"
-                                    } else {
-                                        "Show password"
-                                    },
-                                )
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "Auto-connect",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Switch(
-                            checked = autoConnect,
-                            onCheckedChange = { autoConnect = it },
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val finalUrl = if (
-                        url.isNotBlank() &&
-                        !url.startsWith("http://", ignoreCase = true) &&
-                        !url.startsWith("https://", ignoreCase = true)
-                    ) {
-                        "http://$url"
-                    } else {
-                        url
-                    }
-
-                    val server = ServerConnection(
-                        id = existingServer?.id ?: UUID.randomUUID().toString(),
-                        name = name.trim(),
-                        baseUrl = finalUrl.trim(),
-                        username = username.trim(),
-                        password = password.trim(),
-                        autoConnect = autoConnect,
-                    )
-                    onSave(server)
-                },
-                enabled = !nameError && !urlError,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Cancel")
-            }
-        },
-    )
-}
 
 // ---------------------------------------------------------------------------
 // Recent Sessions Section
