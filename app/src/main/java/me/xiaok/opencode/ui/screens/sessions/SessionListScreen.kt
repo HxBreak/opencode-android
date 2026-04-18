@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Terminal
@@ -86,6 +87,7 @@ fun SessionListRoute(
         onEnterSelectionMode = { viewModel.enterSelectionMode(it) },
         onExitSelectionMode = { viewModel.exitSelectionMode() },
         onSelectAll = { viewModel.selectAll() },
+        onMarkAllAsRead = { viewModel.markAllAsRead() },
         onToggleDirectoryCollapsed = { viewModel.toggleDirectoryCollapsed(it) },
         onNavigateToChat = { sessionId -> onNavigateToChat(serverId, sessionId) },
         onNavigateBack = onNavigateBack,
@@ -120,6 +122,7 @@ fun SessionListScreen(
     onEnterSelectionMode: (sessionId: String) -> Unit,
     onExitSelectionMode: () -> Unit,
     onSelectAll: () -> Unit,
+    onMarkAllAsRead: () -> Unit,
     onToggleDirectoryCollapsed: (directory: String) -> Unit,
     onNavigateToChat: (sessionId: String) -> Unit,
     onNavigateBack: () -> Unit,
@@ -130,7 +133,7 @@ fun SessionListScreen(
     onNavigateToFiles: (directory: String) -> Unit = {},
     onPtyDelete: (ptyId: String) -> Unit = {},
 ) {
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var renamingSession by remember { mutableStateOf<Session?>(null) }
     var isSearchMode by remember { mutableStateOf(false) }
     var searchInput by remember { mutableStateOf("") }
@@ -209,6 +212,14 @@ fun SessionListScreen(
                         }
                     },
                     actions = {
+                        if (uiState.unreadSessions.isNotEmpty()) {
+                            IconButton(onClick = onMarkAllAsRead) {
+                                Icon(
+                                    imageVector = Icons.Default.DoneAll,
+                                    contentDescription = "Mark all as read",
+                                )
+                            }
+                        }
                         IconButton(onClick = { isSearchMode = true }) {
                             Icon(
                                 imageVector = Icons.Default.Search,
