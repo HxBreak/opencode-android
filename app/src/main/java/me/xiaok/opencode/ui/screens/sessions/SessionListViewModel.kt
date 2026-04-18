@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import me.xiaok.opencode.data.api.*
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.EventReducer
 import me.xiaok.opencode.data.repository.ServerRepository
@@ -357,6 +358,22 @@ class SessionListViewModel @Inject constructor(
 
     fun selectAll() {
         _selectedSessions.value = uiState.value.sessions.map { it.id }.toSet()
+    }
+
+    fun markAllAsRead() {
+        viewModelScope.launch {
+            try {
+                val unreadSessionIds = uiState.value.unreadSessions
+                if (unreadSessionIds.isEmpty()) return@launch
+
+                unreadSessionIds.forEach { sessionId ->
+                    eventReducer.markSessionViewed(serverId, sessionId)
+                }
+            } catch (e: Exception) {
+                errorCollector.logError(e, "SessionList")
+                _error.value = e.message ?: "Failed to mark sessions as read"
+            }
+        }
     }
 
     fun deletePty(ptyId: String) {

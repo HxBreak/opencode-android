@@ -9,6 +9,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import me.xiaok.opencode.data.api.*
 import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.CacheRepository
 import me.xiaok.opencode.data.repository.EventReducer
@@ -341,5 +342,45 @@ class SessionListViewModelTest {
         testScope.advanceUntilIdle()
 
         coVerify { settingsRepository.setCollapsedDirectories(emptySet()) }
+    }
+
+    // === markAllAsRead ===
+
+    @Test
+    fun `mark all as read clears unread sessions and persists view logs`() = testScope.runTest {
+        val vm = createViewModel()
+        testScope.advanceUntilIdle()
+
+        val before = vm.uiState.value
+        assertEquals(setOf("ses_1", "ses_2"), before.unreadSessions)
+
+        vm.markAllAsRead()
+        testScope.advanceUntilIdle()
+
+        val after = vm.uiState.value
+        assertTrue(after.unreadSessions.isEmpty())
+        coVerify(exactly = 1) { cacheRepository.markSessionViewed(serverId, "ses_1") }
+        coVerify(exactly = 1) { cacheRepository.markSessionViewed(serverId, "ses_2") }
+    }
+
+    @Test
+    fun `mark all as read does nothing when there are no unread sessions`() = testScope.runTest {
+        val viewedSession1 = testSession1.copy(time = TestFixtures.testSessionTime(updated = 100L))
+        val viewedSession2 = testSession2.copy(time = TestFixtures.testSessionTime(updated = 120L))
+        coEvery { api.listSessions(testServer, directory = null, roots = true) } returns listOf(viewedSession1, viewedSession2)
+        coEvery { cacheRepository.getSessionViewLogs(serverId) } returns mapOf(
+            "ses_1" to 500L,
+            "ses_2" to 500L,
+        )
+
+        val vm = createViewModel()
+        testScope.advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.unreadSessions.isEmpty())
+
+        vm.markAllAsRead()
+        testScope.advanceUntilIdle()
+
+        coVerify(exactly = 0) { cacheRepository.markSessionViewed(serverId, any()) }
     }
 }
