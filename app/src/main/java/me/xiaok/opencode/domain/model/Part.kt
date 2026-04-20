@@ -50,7 +50,7 @@ sealed class Part {
         @SerialName("messageID") override val messageId: String = "",
         val name: String = "",
         val url: String = "",
-        val mimeType: String? = null,
+        @SerialName("mime") val mimeType: String? = null,
     ) : Part()
 
     @Serializable
