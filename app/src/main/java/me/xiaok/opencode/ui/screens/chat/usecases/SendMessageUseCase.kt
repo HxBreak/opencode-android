@@ -139,7 +139,7 @@ class SendMessageUseCase @Inject constructor(
             val page = api.listMessages(refreshServer, ctx.sessionId, limit = settingsRepository.initialMessages.first(), directory = ctx.sessionDirectory)
             eventReducer.setMessages(ctx.sessionId, page.messages)
             page.messages.forEach { message ->
-                if (eventReducer.parts.value[message.id] == null) {
+                if (message.parts.isNotEmpty()) {
                     eventReducer.setParts(message.id, message.parts)
                 }
             }

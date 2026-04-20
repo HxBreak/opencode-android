@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -20,11 +21,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import me.xiaok.opencode.domain.model.Message
 import me.xiaok.opencode.domain.model.Part
 
@@ -113,29 +116,41 @@ internal fun UserMessageBubble(
                             }
                         }
                         is Part.File -> {
-                            // Render file mention as a compact chip in user message
-                            Surface(
-                                color = Color(0xFF2196F3).copy(alpha = 0.15f),
-                                shape = RoundedCornerShape(4.dp),
-                                modifier = Modifier.padding(vertical = 2.dp),
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
+                            val isImage = part.mimeType?.startsWith("image/") == true
+                            if (isImage && part.url.isNotEmpty()) {
+                                AsyncImage(
+                                    model = part.url,
+                                    contentDescription = part.name,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 200.dp)
+                                        .clip(RoundedCornerShape(8.dp)),
+                                )
+                            } else {
+                                // Render file mention as a compact chip in user message
+                                Surface(
+                                    color = Color(0xFF2196F3).copy(alpha = 0.15f),
+                                    shape = RoundedCornerShape(4.dp),
+                                    modifier = Modifier.padding(vertical = 2.dp),
                                 ) {
-                                    Text(
-                                        text = "📄",
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = part.name.ifEmpty { part.url.removePrefix("file://") },
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Medium,
-                                        ),
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    )
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = "📄",
+                                            style = MaterialTheme.typography.labelSmall,
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = part.name.ifEmpty { part.url.removePrefix("file://") },
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Medium,
+                                            ),
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        )
+                                    }
                                 }
                             }
                         }
