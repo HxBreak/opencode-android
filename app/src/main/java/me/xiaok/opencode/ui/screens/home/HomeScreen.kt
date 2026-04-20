@@ -129,7 +129,7 @@ fun HomeScreen(
     onNavigateToServerSettings: (serverId: String) -> Unit,
     onNavigateToSettings: () -> Unit,
 ) {
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingServer by remember { mutableStateOf<ServerConnection?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }

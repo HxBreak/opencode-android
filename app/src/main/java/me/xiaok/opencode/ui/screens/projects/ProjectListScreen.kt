@@ -150,7 +150,7 @@ fun ProjectListScreen(
     onOpenDirectoryBrowser: () -> Unit,
     onSearchQueryChanged: (String) -> Unit,
 ) {
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current

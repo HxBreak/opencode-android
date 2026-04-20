@@ -248,7 +248,7 @@ fun ChatScreen(
     onNavigateToSessionDiff: () -> Unit = {},
     onNavigateToFullScreenEditor: () -> Unit = {},
 ) {
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()

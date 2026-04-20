@@ -133,7 +133,7 @@ fun SessionListScreen(
     onNavigateToFiles: (directory: String) -> Unit = {},
     onPtyDelete: (ptyId: String) -> Unit = {},
 ) {
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     var renamingSession by remember { mutableStateOf<Session?>(null) }
     var isSearchMode by remember { mutableStateOf(false) }
     var searchInput by remember { mutableStateOf("") }
