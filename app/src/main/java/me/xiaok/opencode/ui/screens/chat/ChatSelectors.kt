@@ -29,6 +29,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,6 +66,7 @@ internal fun SelectorRow(
             selectedItem = selectedAgent,
             onSelect = onAgentSelected,
             modifier = Modifier.weight(1f),
+            contentDescription = "Agent selector",
         )
 
         val allModels = remember(providers) {
@@ -92,7 +96,8 @@ internal fun SelectorRow(
             label = modelLabel,
             selectedModel = selectedModel,
             onClick = { showModelPicker = true },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).testTag("chip_model")
+                .semantics { contentDescription = "Model selector" },
         )
 
         if (showModelPicker) {
@@ -122,6 +127,7 @@ private fun SelectorChip(
     onSelect: (String?) -> Unit,
     modifier: Modifier = Modifier,
     displayNames: List<String> = items,
+    contentDescription: String? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -139,6 +145,12 @@ private fun SelectorChip(
         ) {
             Row(
                 modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (contentDescription != null) {
+                            Modifier.semantics { this.contentDescription = contentDescription }
+                        } else Modifier
+                    )
                     .clickable { expanded = true }
                     .padding(horizontal = 10.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -211,6 +223,7 @@ private fun ModelSelectorChip(
     ) {
         Row(
             modifier = Modifier
+                .fillMaxWidth()
                 .clickable(onClick = onClick)
                 .padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -255,22 +268,22 @@ private fun VariantChip(
         },
         modifier = modifier,
     ) {
-        Row(
-            modifier = Modifier
-                .clickable {
-                    if (variants.isEmpty()) return@clickable
-                    if (selectedVariant == null) {
-                        onVariantSelected(variants.first())
-                    } else {
-                        val currentIndex = variants.indexOf(selectedVariant)
-                        if (currentIndex >= 0 && currentIndex < variants.lastIndex) {
-                            onVariantSelected(variants[currentIndex + 1])
+            Row(
+                modifier = Modifier
+                    .clickable {
+                        if (variants.isEmpty()) return@clickable
+                        if (selectedVariant == null) {
+                            onVariantSelected(variants.first())
                         } else {
-                            onVariantSelected(null)
+                            val currentIndex = variants.indexOf(selectedVariant)
+                            if (currentIndex >= 0 && currentIndex < variants.lastIndex) {
+                                onVariantSelected(variants[currentIndex + 1])
+                            } else {
+                                onVariantSelected(null)
+                            }
                         }
                     }
-                }
-                .padding(horizontal = 10.dp, vertical = 4.dp),
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
