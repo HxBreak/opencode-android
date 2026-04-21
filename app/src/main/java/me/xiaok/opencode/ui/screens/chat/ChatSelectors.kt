@@ -65,7 +65,7 @@ internal fun SelectorRow(
             items = visibleAgents.map { it.name },
             selectedItem = selectedAgent,
             onSelect = onAgentSelected,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(3f),
             contentDescription = "Agent selector",
         )
 
@@ -96,7 +96,7 @@ internal fun SelectorRow(
             label = modelLabel,
             selectedModel = selectedModel,
             onClick = { showModelPicker = true },
-            modifier = Modifier.weight(1f).testTag("chip_model")
+            modifier = Modifier.weight(3f).testTag("chip_model")
                 .semantics { contentDescription = "Model selector" },
         )
 
@@ -114,6 +114,7 @@ internal fun SelectorRow(
                 variants = variants,
                 selectedVariant = selectedVariant,
                 onVariantSelected = onVariantSelected,
+                modifier = Modifier.weight(1f),
             )
         }
     }
@@ -266,7 +267,7 @@ private fun VariantChip(
         } else {
             MaterialTheme.colorScheme.surfaceContainerHigh
         },
-        modifier = modifier,
+        modifier = modifier.height(IntrinsicSize.Min),
     ) {
             Row(
                 modifier = Modifier
