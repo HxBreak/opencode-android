@@ -82,6 +82,7 @@ class ChatViewModelTest {
     private lateinit var messageLoadingUseCase: MessageLoadingUseCase
     private lateinit var chatCommandUseCase: ChatCommandUseCase
     private lateinit var testScope: TestScope
+    private val connectionStatesFlow = MutableStateFlow<Map<String, ServerRepository.ConnectionState>>(emptyMap())
 
     @Before
     fun setup() {
@@ -116,27 +117,28 @@ class ChatViewModelTest {
 
         every { serverRepository.getServer(any()) } returns testServer
         every { serverRepository.servers } returns MutableStateFlow(listOf(testServer))
-        coEvery { api.listMessages(any(), any(), limit = any(), before = any()) } returns MessagesPage(emptyList(), null)
-        coEvery { api.getProviders(any()) } returns TestFixtures.testProviderList()
-        coEvery { api.getAgents(any()) } returns listOf(
+        every { serverRepository.connectionStates } returns connectionStatesFlow
+        coEvery { api.listMessages(testServer, testSession.id, limit = any(), before = any()) } returns MessagesPage(emptyList(), null)
+        coEvery { api.getProviders(testServer) } returns TestFixtures.testProviderList()
+        coEvery { api.getAgents(testServer) } returns listOf(
             TestFixtures.testAgentConfig(),
             TestFixtures.testAgentConfig(name = "explore", mode = "subagent")
         )
-        coEvery { api.getCommands(any()) } returns listOf(TestFixtures.testCommandInfo())
+        coEvery { api.getCommands(testServer) } returns listOf(TestFixtures.testCommandInfo())
         coEvery { metadataCache.getProviders(any(), any()) } returns TestFixtures.testProviderList()
         coEvery { metadataCache.getAgents(any(), any()) } returns listOf(
             TestFixtures.testAgentConfig(),
             TestFixtures.testAgentConfig(name = "explore", mode = "subagent")
         )
         coEvery { metadataCache.getCommands(any(), any()) } returns listOf(TestFixtures.testCommandInfo())
-        coEvery { api.getSessionChildren(any(), any()) } returns emptyList()
-        coEvery { api.replyQuestion(any(), any(), any()) } returns true
-        coEvery { api.rejectQuestion(any(), any()) } returns true
+        coEvery { api.getSessionChildren(testServer, testSession.id) } returns emptyList()
+        coEvery { api.replyQuestion(testServer, any<String>(), any()) } returns true
+        coEvery { api.rejectQuestion(testServer, any<String>()) } returns true
         every { settingsRepository.initialMessages } returns flowOf(50)
         coEvery { settingsRepository.chatFontSize } returns flowOf("medium")
         coEvery { settingsRepository.getRecentAgent(any()) } returns flowOf(null)
         coEvery { settingsRepository.getRecentModel(any()) } returns flowOf(null)
-        coEvery { api.getConfig(any()) } returns kotlinx.serialization.json.JsonObject(emptyMap())
+        coEvery { api.getConfig(testServer) } returns kotlinx.serialization.json.JsonObject(emptyMap())
         every { draftRepository.getDraft(any()) } returns MutableStateFlow(null)
     }
 
@@ -182,7 +184,7 @@ class ChatViewModelTest {
     @Test
     fun `loadMessages loads from API and sets messages in EventReducer`() = testScope.runTest {
         val messages = listOf(testUserMessage, testMessage)
-        coEvery { api.listMessages(any(), any(), limit = any()) } returns MessagesPage(messages, null)
+        coEvery { api.listMessages(testServer, testSession.id, limit = any()) } returns MessagesPage(messages, null)
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -207,7 +209,7 @@ class ChatViewModelTest {
 
     @Test
     fun `loadMessages sets error on API exception`() = testScope.runTest {
-        coEvery { api.listMessages(any(), any(), limit = any()) } throws RuntimeException("Network error")
+        coEvery { api.listMessages(testServer, testSession.id, limit = any()) } throws RuntimeException("Network error")
 
         val vm = createViewModel()
         val collectJob = backgroundScope.launch { vm.uiState.collect {} }
@@ -224,8 +226,8 @@ class ChatViewModelTest {
 
     @Test
     fun `sendMessage calls API with text parts and clears draft`() = testScope.runTest {
-        coEvery { api.promptAsync(any(), any(), parts = any(), agent = any(), model = any()) } just Runs
-        coEvery { api.listMessages(any(), any(), limit = any()) } returns MessagesPage(emptyList(), null)
+        coEvery { api.promptAsync(testServer, testSession.id, parts = any(), agent = any(), model = any()) } just Runs
+        coEvery { api.listMessages(testServer, testSession.id, limit = any()) } returns MessagesPage(emptyList(), null)
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -233,7 +235,7 @@ class ChatViewModelTest {
         vm.sendMessage("Hello world")
         advanceUntilIdle()
 
-        coVerify { api.promptAsync(any(), any(), parts = any(), agent = any(), model = any()) }
+        coVerify { api.promptAsync(testServer, testSession.id, parts = any(), agent = any(), model = any()) }
         coVerify { draftRepository.clearDraft(testSession.id) }
     }
 
@@ -245,12 +247,12 @@ class ChatViewModelTest {
         vm.sendMessage("   ")
         advanceUntilIdle()
 
-        coVerify(exactly = 0) { api.promptAsync(any(), any(), parts = any(), agent = any(), model = any()) }
+        coVerify(exactly = 0) { api.promptAsync(testServer, testSession.id, parts = any(), agent = any(), model = any()) }
     }
 
     @Test
     fun `sendMessage with isSending true is a no-op`() = testScope.runTest {
-        coEvery { api.promptAsync(any(), any(), parts = any(), agent = any(), model = any()) } coAnswers {
+        coEvery { api.promptAsync(testServer, testSession.id, parts = any(), agent = any(), model = any()) } coAnswers {
             delay(1000)
         }
 
@@ -262,7 +264,7 @@ class ChatViewModelTest {
         vm.sendMessage("second")
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { api.promptAsync(any(), any(), parts = any(), agent = any(), model = any()) }
+        coVerify(exactly = 1) { api.promptAsync(testServer, testSession.id, parts = any(), agent = any(), model = any()) }
     }
 
     @Test
@@ -273,14 +275,14 @@ class ChatViewModelTest {
         vm.sendMessage("!ls -la")
         advanceUntilIdle()
 
-        coVerify { api.runShell(any(), any(), "ls -la", any()) }
-        coVerify(exactly = 0) { api.promptAsync(any(), any(), parts = any(), agent = any(), model = any()) }
+        coVerify { api.runShell(testServer, testSession.id, "ls -la", any()) }
+        coVerify(exactly = 0) { api.promptAsync(testServer, testSession.id, parts = any(), agent = any(), model = any()) }
     }
 
     @Test
     fun `sendMessage with blank text and no images is a no-op`() = testScope.runTest {
-        coEvery { api.promptAsync(any(), any(), parts = any(), agent = any(), model = any()) } just Runs
-        coEvery { api.listMessages(any(), any(), limit = any()) } returns MessagesPage(emptyList(), null)
+        coEvery { api.promptAsync(testServer, testSession.id, parts = any(), agent = any(), model = any()) } just Runs
+        coEvery { api.listMessages(testServer, testSession.id, limit = any()) } returns MessagesPage(emptyList(), null)
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -288,7 +290,7 @@ class ChatViewModelTest {
         vm.sendMessage("")
         advanceUntilIdle()
 
-        coVerify(exactly = 0) { api.promptAsync(any(), any(), parts = any(), agent = any(), model = any()) }
+        coVerify(exactly = 0) { api.promptAsync(testServer, testSession.id, parts = any(), agent = any(), model = any()) }
     }
 
     // ====================================================================
@@ -302,7 +304,7 @@ class ChatViewModelTest {
             all = listOf(provider),
             connected = listOf("anthropic"),
         )
-        coEvery { api.getProviders(any()) } returns providerList
+        coEvery { api.getProviders(testServer) } returns providerList
 
         val vm = createViewModel()
         val collectJob = backgroundScope.launch { vm.uiState.collect {} }
@@ -324,7 +326,7 @@ class ChatViewModelTest {
             TestFixtures.testAgentConfig(name = "code", mode = "primary"),
             TestFixtures.testAgentConfig(name = "explore", mode = "subagent", hidden = false),
         )
-        coEvery { api.getAgents(any()) } returns agents
+        coEvery { api.getAgents(testServer) } returns agents
 
         val vm = createViewModel()
         val collectJob = backgroundScope.launch { vm.uiState.collect {} }
@@ -346,7 +348,7 @@ class ChatViewModelTest {
             TestFixtures.testCommandInfo(name = "commit"),
             TestFixtures.testCommandInfo(name = "review"),
         )
-        coEvery { api.getCommands(any()) } returns commands
+        coEvery { api.getCommands(testServer) } returns commands
 
         val vm = createViewModel()
         val collectJob = backgroundScope.launch { vm.uiState.collect {} }
@@ -436,7 +438,7 @@ class ChatViewModelTest {
         vm.replyPermission(perm.id, "once")
         advanceUntilIdle()
 
-        coVerify { api.replyPermission(any(), perm.id, any()) }
+        coVerify { api.replyPermission(testServer, perm.id, any()) }
         val remaining = eventReducer.permissions.value[testSession.id] ?: emptyList()
         assertTrue(remaining.none { it.id == perm.id })
     }
@@ -457,7 +459,7 @@ class ChatViewModelTest {
         vm.replyQuestion(question, listOf(listOf("React")))
         advanceUntilIdle()
 
-        coVerify { api.replyQuestion(any(), question.id, listOf(listOf("React"))) }
+        coVerify { api.replyQuestion(testServer, question.id, listOf(listOf("React"))) }
         val remaining = eventReducer.questions.value[testSession.id] ?: emptyList()
         assertTrue(remaining.none { it.id == question.id })
     }
@@ -478,7 +480,7 @@ class ChatViewModelTest {
         vm.rejectQuestion(question)
         advanceUntilIdle()
 
-        coVerify { api.rejectQuestion(any(), question.id) }
+        coVerify { api.rejectQuestion(testServer, question.id) }
         val remaining = eventReducer.questions.value[testSession.id] ?: emptyList()
         assertTrue(remaining.none { it.id == question.id })
     }
@@ -563,7 +565,7 @@ class ChatViewModelTest {
         vm.deleteMessage(testMessage.info.id)
         advanceUntilIdle()
 
-        coVerify { api.deleteMessage(any(), testSession.id, testMessage.info.id) }
+        coVerify { api.deleteMessage(testServer, testSession.id, testMessage.info.id) }
         val msgs = eventReducer.messages.value[testSession.id] ?: emptyList()
         assertTrue(msgs.none { it.info.id == testMessage.info.id })
     }
@@ -575,7 +577,7 @@ class ChatViewModelTest {
     @Test
     fun `forkSession calls API and invokes callback`() = testScope.runTest {
         val forkedSession = TestFixtures.testSession(id = "ses_forked")
-        coEvery { api.forkSession(any(), any(), any()) } returns forkedSession
+        coEvery { api.forkSession(testServer, testSession.id, any()) } returns forkedSession
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -584,7 +586,7 @@ class ChatViewModelTest {
         vm.forkSession("msg_123") { result = it }
         advanceUntilIdle()
 
-        coVerify { api.forkSession(any(), testSession.id, "msg_123") }
+        coVerify { api.forkSession(testServer, testSession.id, "msg_123") }
         assertEquals("ses_forked", result)
     }
 
@@ -595,7 +597,7 @@ class ChatViewModelTest {
     @Test
     fun `shareSession calls API and invokes callback with URL`() = testScope.runTest {
         val share = TestFixtures.testSessionShare()
-        coEvery { api.shareSession(any(), any()) } returns share
+        coEvery { api.shareSession(testServer, testSession.id) } returns share
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -604,7 +606,7 @@ class ChatViewModelTest {
         vm.shareSession { result = it }
         advanceUntilIdle()
 
-        coVerify { api.shareSession(any(), testSession.id) }
+        coVerify { api.shareSession(testServer, testSession.id) }
         assertEquals(share.url, result)
     }
 
@@ -615,8 +617,8 @@ class ChatViewModelTest {
     @Test
     fun `unshareSession calls API and refreshes session`() = testScope.runTest {
         val updatedSession = TestFixtures.testSession()
-        coEvery { api.unshareSession(any(), any()) } returns true
-        coEvery { api.getSession(any(), any()) } returns updatedSession
+        coEvery { api.unshareSession(testServer, testSession.id) } returns true
+        coEvery { api.getSession(testServer, testSession.id) } returns updatedSession
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -624,8 +626,8 @@ class ChatViewModelTest {
         vm.unshareSession()
         advanceUntilIdle()
 
-        coVerify { api.unshareSession(any(), testSession.id) }
-        coVerify { api.getSession(any(), testSession.id) }
+        coVerify { api.unshareSession(testServer, testSession.id) }
+        coVerify { api.getSession(testServer, testSession.id) }
     }
 
     // ====================================================================
@@ -634,7 +636,7 @@ class ChatViewModelTest {
 
     @Test
     fun `revertSession calls API`() = testScope.runTest {
-        coEvery { api.revertSession(any(), any(), any()) } just Runs
+        coEvery { api.revertSession(testServer, testSession.id, any()) } just Runs
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -642,7 +644,7 @@ class ChatViewModelTest {
         vm.revertSession("msg_revert")
         advanceUntilIdle()
 
-        coVerify { api.revertSession(any(), testSession.id, "msg_revert") }
+        coVerify { api.revertSession(testServer, testSession.id, "msg_revert") }
     }
 
     // ====================================================================
@@ -651,7 +653,7 @@ class ChatViewModelTest {
 
     @Test
     fun `summarizeSession calls API`() = testScope.runTest {
-        coEvery { api.summarizeSession(any(), any(), any(), any(), any()) } returns true
+        coEvery { api.summarizeSession(testServer, any(), any(), any(), any()) } returns true
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -659,7 +661,7 @@ class ChatViewModelTest {
         vm.summarizeSession()
         advanceUntilIdle()
 
-        coVerify { api.summarizeSession(any(), eq(testSession.id), any(), any(), any()) }
+        coVerify { api.summarizeSession(testServer, eq(testSession.id), any(), any(), any()) }
     }
 
     // ====================================================================
@@ -668,7 +670,7 @@ class ChatViewModelTest {
 
     @Test
     fun `abortSession calls API`() = testScope.runTest {
-        coEvery { api.abortSession(any(), any()) } returns true
+        coEvery { api.abortSession(testServer, testSession.id) } returns true
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -676,7 +678,7 @@ class ChatViewModelTest {
         vm.abortSession()
         advanceUntilIdle()
 
-        coVerify { api.abortSession(any(), testSession.id) }
+        coVerify { api.abortSession(testServer, testSession.id) }
     }
 
     // ====================================================================
@@ -685,7 +687,7 @@ class ChatViewModelTest {
 
     @Test
     fun `dismissError clears error`() = testScope.runTest {
-        coEvery { api.listMessages(any(), any(), limit = any()) } throws RuntimeException("Test error")
+        coEvery { api.listMessages(testServer, testSession.id, limit = any()) } throws RuntimeException("Test error")
 
         val vm = createViewModel()
         val collectJob = backgroundScope.launch { vm.uiState.collect {} }
@@ -750,9 +752,9 @@ class ChatViewModelTest {
             info = TestFixtures.testMessageInfo(id = "msg_old1")
         )
 
-        coEvery { api.listMessages(any(), any(), limit = any()) } returns MessagesPage(initialMessages, "cursor_1")
+        coEvery { api.listMessages(testServer, testSession.id, limit = any()) } returns MessagesPage(initialMessages, "cursor_1")
         coEvery {
-            api.listMessages(any(), any(), limit = any(), before = "cursor_1")
+            api.listMessages(testServer, testSession.id, limit = any(), before = "cursor_1")
         } returns MessagesPage(listOf(olderMessage), null)
 
         val vm = createViewModel()
@@ -761,7 +763,7 @@ class ChatViewModelTest {
         vm.loadOlderMessages()
         advanceUntilIdle()
 
-        coVerify { api.listMessages(any(), any(), limit = any(), before = "cursor_1") }
+        coVerify { api.listMessages(testServer, testSession.id, limit = any(), before = "cursor_1") }
         val stored = eventReducer.messages.value[testSession.id] ?: emptyList()
         assertEquals(3, stored.size)
     }
@@ -771,8 +773,8 @@ class ChatViewModelTest {
         val manyMessages = List(50) { i ->
             TestFixtures.testMessage(info = TestFixtures.testMessageInfo(id = "msg_$i"))
         }
-        coEvery { api.listMessages(any(), any(), limit = any()) } returns MessagesPage(manyMessages, "cursor_1")
-        coEvery { api.listMessages(any(), any(), limit = any(), before = "cursor_1") } returns MessagesPage(emptyList(), null)
+        coEvery { api.listMessages(testServer, testSession.id, limit = any()) } returns MessagesPage(manyMessages, "cursor_1")
+        coEvery { api.listMessages(testServer, testSession.id, limit = any(), before = "cursor_1") } returns MessagesPage(emptyList(), null)
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -794,8 +796,8 @@ class ChatViewModelTest {
         val manyMessages = List(50) { i ->
             TestFixtures.testMessage(info = TestFixtures.testMessageInfo(id = "msg_$i"))
         }
-        coEvery { api.listMessages(any(), any(), limit = any()) } returns MessagesPage(manyMessages, "cursor_1")
-        coEvery { api.listMessages(any(), any(), limit = any(), before = any()) } returns MessagesPage(emptyList(), null)
+        coEvery { api.listMessages(testServer, testSession.id, limit = any()) } returns MessagesPage(manyMessages, "cursor_1")
+        coEvery { api.listMessages(testServer, testSession.id, limit = any(), before = any()) } returns MessagesPage(emptyList(), null)
 
         val vm = createViewModel()
         advanceUntilIdle()
@@ -804,7 +806,7 @@ class ChatViewModelTest {
         vm.loadOlderMessages()
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { api.listMessages(any(), any(), limit = any(), before = any()) }
+        coVerify(exactly = 1) { api.listMessages(testServer, testSession.id, limit = any(), before = any()) }
     }
 
     // ====================================================================
@@ -868,7 +870,7 @@ class ChatViewModelTest {
     @Test
     fun `sendMessage restores draft on failure`() = testScope.runTest {
         coEvery {
-            api.promptAsync(any(), any(), parts = any(), agent = any(), model = any())
+            api.promptAsync(testServer, testSession.id, parts = any(), agent = any(), model = any())
         } throws RuntimeException("Send failed")
 
         val vm = createViewModel()
@@ -1083,5 +1085,72 @@ class ChatViewModelTest {
         val updated = vm.uiState.first { it.childSessions.size == 2 }
         assertEquals(2, updated.childSessions.size)
         collectJob.cancel()
+    }
+
+    // ====================================================================
+    // observeReconnection
+    // ====================================================================
+
+    @Test
+    fun `first SSE connection does not trigger refresh`() = testScope.runTest {
+        val vm = createViewModel()
+        advanceUntilIdle()
+        clearMocks(api)
+        connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.CONNECTED)
+        advanceUntilIdle()
+        coVerify(exactly = 0) { api.getSessionStatuses(testServer, any<String>()) }
+    }
+
+    @Test
+    fun `SSE reconnection triggers loadSessionStatus`() = testScope.runTest {
+        connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.CONNECTED)
+        val vm = createViewModel()
+        advanceUntilIdle()
+        clearMocks(api)
+        connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.DISCONNECTED)
+        advanceUntilIdle()
+        connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.CONNECTED)
+        advanceUntilIdle()
+        coVerify(atLeast = 1) { api.getSessionStatuses(testServer, any<String>()) }
+    }
+
+    @Test
+    fun `SSE reconnection triggers loadMessages`() = testScope.runTest {
+        connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.CONNECTED)
+        val vm = createViewModel()
+        advanceUntilIdle()
+        connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.DISCONNECTED)
+        advanceUntilIdle()
+        connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.CONNECTED)
+        advanceUntilIdle()
+        coVerify(atLeast = 2) { api.listMessages(testServer, testSession.id, limit = any()) }
+    }
+
+    @Test
+    fun `SSE reconnection updates session status in EventReducer`() = testScope.runTest {
+        eventReducer.setSessions(testServer.id, listOf(testSession))
+        connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.CONNECTED)
+        coEvery { api.getSessionStatuses(testServer, any<String>()) } returns mapOf(testSession.id to SessionStatus.Busy)
+        val vm = createViewModel()
+        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.DISCONNECTED)
+        advanceUntilIdle()
+        connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.CONNECTED)
+        advanceUntilIdle()
+        val updatedState = vm.uiState.first { it.sessionStatus is SessionStatus.Busy }
+        assertTrue(updatedState.sessionStatus is SessionStatus.Busy)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `CONNECTING state does not trigger refresh`() = testScope.runTest {
+        connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.CONNECTED)
+        val vm = createViewModel()
+        advanceUntilIdle()
+        clearMocks(api)
+        connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.CONNECTING)
+        advanceUntilIdle()
+        coVerify(exactly = 0) { api.getSessionStatuses(testServer, any<String>()) }
     }
 }

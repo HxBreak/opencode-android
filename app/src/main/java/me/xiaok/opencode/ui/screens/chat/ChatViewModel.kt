@@ -314,6 +314,44 @@ class ChatViewModel @Inject constructor(
         loadChildSessions()
         loadPendingQuestions()
         loadTodosFromParts()
+        observeReconnection()
+    }
+
+    /**
+     * Observe SSE connection state changes and refresh chat data on reconnection.
+     *
+     * When the server reconnects after a disconnection (e.g. app backgrounded + network lost),
+     * SSE events that occurred during the gap are permanently lost. This observer detects
+     * the reconnection and triggers a full state refresh to recover from stale state.
+     *
+     * The first CONNECTED is skipped because [init] already loads initial data.
+     */
+    private fun observeReconnection() {
+        var hadFirstConnection = false
+        serverRepository.connectionStates
+            .map { it[serverId] is ServerRepository.ConnectionState.CONNECTED }
+            .distinctUntilChanged()
+            .onEach { isConnected ->
+                if (isConnected) {
+                    if (hadFirstConnection) {
+                        Log.d(TAG, "SSE reconnected, refreshing chat state for session=$sessionId")
+                        refreshOnReconnect()
+                    }
+                    hadFirstConnection = true
+                }
+            }
+            .launchIn(viewModelScope)
+    }
+
+    /**
+     * Refresh chat state after SSE reconnection.
+     * Calls the same load methods used during initialization to recover missed SSE events.
+     */
+    private fun refreshOnReconnect() {
+        loadSessionStatus()
+        loadMessages()
+        loadChildSessions()
+        loadPendingQuestions()
     }
 
     override fun onCleared() {
