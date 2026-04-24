@@ -32,3 +32,9 @@ scripts/
 
 # Design references
 .stitch/
+
+# AI tool local config
+.claude/
+
+# JVM crash logs
+hs_err_pid*.log
