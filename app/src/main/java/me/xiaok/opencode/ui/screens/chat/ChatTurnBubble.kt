@@ -1,6 +1,7 @@
 package me.xiaok.opencode.ui.screens.chat
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,8 +28,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import me.xiaok.opencode.domain.model.Part
 import java.text.SimpleDateFormat
@@ -64,20 +68,26 @@ internal fun TurnBubble(
 
     // Dropdown state
     var showMenu by remember { mutableStateOf(false) }
+    var menuOffset by remember { mutableStateOf(Offset.Zero) }
+    val density = LocalDensity.current
 
     // Check if turn has a real user message id for menu actions
     val hasRealUserMessage = turn.userMessage.id.isNotEmpty()
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onLongPress = { showMenu = true }
-                )
-            },
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onLongPress = { offset ->
+                            menuOffset = offset
+                            showMenu = true
+                        }
+                    )
+                },
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
         // 1. User message (or compaction divider)
         if (isCompactionOnly) {
             userParts.filterIsInstance<Part.Compaction>().forEach { part ->
@@ -87,7 +97,6 @@ internal fun TurnBubble(
             UserMessageBubble(
                 message = turn.userMessage,
                 parts = userParts,
-                onMenuClick = { showMenu = true },
             )
             val createdMs = turn.userMessage.time.created
             if (createdMs > 0) {
@@ -180,12 +189,18 @@ internal fun TurnBubble(
             }
         }
 
-        // Dropdown menu at Turn level
+        }
+
+        // Dropdown menu — anchored to the Box, offset to long-press position
         DropdownMenu(
             expanded = showMenu,
             onDismissRequest = { showMenu = false },
+            offset = DpOffset(
+                x = with(density) { menuOffset.x.toDp() },
+                y = with(density) { menuOffset.y.toDp() },
+            ),
         ) {
-            // Copy: merge all Text parts from all assistant messages
+            // Copy: merge all Text parts (user + assistant)
             DropdownMenuItem(
                 text = { Text("Copy") },
                 leadingIcon = {
@@ -197,10 +212,7 @@ internal fun TurnBubble(
                 },
                 onClick = {
                     showMenu = false
-                    val text = partLookup.values
-                        .filterIsInstance<Part.Text>()
-                        .joinToString("\n") { it.text }
-                    onCopyMessage(text)
+                    onCopyMessage(extractTurnCopyText(turn))
                 },
             )
             // Delete: only if real user message

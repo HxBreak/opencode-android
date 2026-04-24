@@ -57,7 +57,7 @@ internal fun MessageBubble(
                     PartRenderer(part = part)
                 }
             } else {
-                UserMessageBubble(message = message, parts = parts, onMenuClick = onMenuClick)
+                UserMessageBubble(message = message, parts = parts)
             }
         }
         message.isAssistant -> AssistantMessageBubble(
@@ -78,7 +78,6 @@ internal fun MessageBubble(
 internal fun UserMessageBubble(
     message: Message,
     parts: List<Part>,
-    onMenuClick: () -> Unit = {},
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -95,11 +94,6 @@ internal fun UserMessageBubble(
             modifier = Modifier
                 .widthIn(max = 320.dp)
                 .fillMaxWidth()
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onLongPress = { onMenuClick() }
-                    )
-                }
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 // Prefer SSE-streamed parts (uiState.parts), fallback to message.parts

@@ -100,3 +100,19 @@ private fun computeTurnRenderData(turn: ChatTurn, parts: Map<String, List<Part>>
         isActivelyReasoning = isActivelyReasoning,
     )
 }
+
+/**
+ * Extracts all copyable text from a [ChatTurn], combining user message text
+ * and assistant response text. Returns empty string if no text parts found.
+ */
+internal fun extractTurnCopyText(turn: ChatTurn): String {
+    val userText = turn.userParts
+        .filterIsInstance<Part.Text>()
+        .joinToString("\n") { it.text }
+    val assistantText = turn.partLookup.values
+        .filterIsInstance<Part.Text>()
+        .joinToString("\n") { it.text }
+    return listOf(userText, assistantText)
+        .filter { it.isNotEmpty() }
+        .joinToString("\n\n")
+}

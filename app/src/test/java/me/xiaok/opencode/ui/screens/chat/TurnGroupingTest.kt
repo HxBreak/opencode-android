@@ -6,6 +6,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import me.xiaok.opencode.domain.model.*
 import me.xiaok.opencode.fixtures.TestFixtures
+import me.xiaok.opencode.ui.screens.chat.PartRef
 import me.xiaok.opencode.utils.CoroutineTestRule
 import org.junit.Assert.*
 import org.junit.Before
@@ -425,5 +426,109 @@ class GroupTurnPartsTest {
     fun `empty parts list produces empty groups`() {
         val groups = groupTurnParts(emptyList())
         assertTrue(groups.isEmpty())
+    }
+}
+
+// ==========================================================================
+// extractTurnCopyText — pure function tests (plain JUnit 4)
+// ==========================================================================
+
+class ExtractTurnCopyTextTest {
+
+    @Test
+    fun `turn with no text parts returns empty string`() {
+        val turn = ChatTurn(
+            userMessage = TestFixtures.testMessage(
+                info = TestFixtures.testUserMessageInfo(id = "u1"),
+            ),
+            userParts = emptyList(),
+            partLookup = emptyMap(),
+        )
+        assertEquals("", extractTurnCopyText(turn))
+    }
+
+    @Test
+    fun `turn with only user text returns user text`() {
+        val turn = ChatTurn(
+            userMessage = TestFixtures.testMessage(
+                info = TestFixtures.testUserMessageInfo(id = "u1"),
+            ),
+            userParts = listOf(
+                TestFixtures.testTextPart(id = "p1", messageId = "u1", text = "Hello"),
+            ),
+            partLookup = emptyMap(),
+        )
+        assertEquals("Hello", extractTurnCopyText(turn))
+    }
+
+    @Test
+    fun `turn with only assistant text returns assistant text`() {
+        val turn = ChatTurn(
+            userMessage = TestFixtures.testMessage(
+                info = TestFixtures.testUserMessageInfo(id = "u1"),
+            ),
+            userParts = emptyList(),
+            partLookup = mapOf(
+                PartRef("a1", "p1") to TestFixtures.testTextPart(
+                    id = "p1", messageId = "a1", text = "Hi there",
+                ),
+            ),
+        )
+        assertEquals("Hi there", extractTurnCopyText(turn))
+    }
+
+    @Test
+    fun `turn with both user and assistant text joins with double newline`() {
+        val turn = ChatTurn(
+            userMessage = TestFixtures.testMessage(
+                info = TestFixtures.testUserMessageInfo(id = "u1"),
+            ),
+            userParts = listOf(
+                TestFixtures.testTextPart(id = "p1", messageId = "u1", text = "Hello"),
+            ),
+            partLookup = mapOf(
+                PartRef("a1", "p2") to TestFixtures.testTextPart(
+                    id = "p2", messageId = "a1", text = "Hi there",
+                ),
+            ),
+        )
+        assertEquals("Hello\n\nHi there", extractTurnCopyText(turn))
+    }
+
+    @Test
+    fun `multiple user and assistant text parts are joined`() {
+        val turn = ChatTurn(
+            userMessage = TestFixtures.testMessage(
+                info = TestFixtures.testUserMessageInfo(id = "u1"),
+            ),
+            userParts = listOf(
+                TestFixtures.testTextPart(id = "p1", messageId = "u1", text = "Line 1"),
+                TestFixtures.testTextPart(id = "p2", messageId = "u1", text = "Line 2"),
+            ),
+            partLookup = mapOf(
+                PartRef("a1", "p3") to TestFixtures.testTextPart(
+                    id = "p3", messageId = "a1", text = "Reply 1",
+                ),
+                PartRef("a1", "p4") to TestFixtures.testTextPart(
+                    id = "p4", messageId = "a1", text = "Reply 2",
+                ),
+            ),
+        )
+        assertEquals("Line 1\nLine 2\n\nReply 1\nReply 2", extractTurnCopyText(turn))
+    }
+
+    @Test
+    fun `non-text parts in userParts are ignored`() {
+        val turn = ChatTurn(
+            userMessage = TestFixtures.testMessage(
+                info = TestFixtures.testUserMessageInfo(id = "u1"),
+            ),
+            userParts = listOf(
+                TestFixtures.testFilePart(),
+                TestFixtures.testTextPart(id = "p1", messageId = "u1", text = "User text"),
+            ),
+            partLookup = emptyMap(),
+        )
+        assertEquals("User text", extractTurnCopyText(turn))
     }
 }
