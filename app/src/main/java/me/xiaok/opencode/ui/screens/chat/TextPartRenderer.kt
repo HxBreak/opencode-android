@@ -30,14 +30,19 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.mikepenz.markdown.compose.LocalMarkdownDimens
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.model.DefaultMarkdownTypography
+import com.mikepenz.markdown.model.MarkdownDimens
 import me.xiaok.opencode.domain.model.*
 
 // ---------------------------------------------------------------------------
@@ -382,6 +387,30 @@ private fun ThinkingShimmerText() {
 }
 
 // ---------------------------------------------------------------------------
+// Custom MarkdownDimens — wider table cells to prevent truncation
+// ---------------------------------------------------------------------------
+
+/**
+ * Custom [MarkdownDimens] that increases [tableCellWidth] so table cells
+ * have enough room to display content without ellipsis truncation.
+ * The library's `MarkdownTable` automatically enables horizontal scrolling
+ * when the combined cell width exceeds the container width.
+ *
+ * Default library value is 160dp which causes aggressive truncation.
+ * We use 250dp per cell — wide enough for most content, and the table
+ * becomes horizontally scrollable on phone screens.
+ */
+@Composable
+internal fun rememberChatMarkdownDimens(): MarkdownDimens {
+    val defaults = LocalMarkdownDimens.current
+    return remember(defaults) {
+        object : MarkdownDimens by defaults {
+            override val tableCellWidth: Dp = 250.dp
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Text part renderer
 // ---------------------------------------------------------------------------
 
@@ -491,29 +520,53 @@ internal fun TextPart(
     // If parsing produced no segments (shouldn't happen with non-blank text),
     // fall back to plain Markdown rendering
     if (segments.isEmpty()) {
-        Markdown(
-            content = part.text,
-            modifier = modifier.fillMaxWidth(),
-            typography = chatTypography,
-            colors = chatColors,
-        )
+        SelectionContainer {
+            ChatMarkdown(chatColors, chatTypography, part.text, modifier.fillMaxWidth())
+        }
         return
     }
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        segments.forEach { segment ->
-            when (segment) {
-                is MarkdownSegment.Plain -> Markdown(
-                    content = segment.text,
-                    modifier = Modifier.fillMaxWidth(),
-                    typography = chatTypography,
-                    colors = chatColors,
-                )
-                is MarkdownSegment.Code -> CodeBlock(
-                    language = segment.language,
-                    code = segment.code,
-                )
+        // Use a single SelectionContainer for all markdown segments so the user
+        // can select text across paragraph/code boundaries naturally.
+        SelectionContainer {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                segments.forEach { segment ->
+                    when (segment) {
+                        is MarkdownSegment.Plain -> ChatMarkdown(
+                            colors = chatColors,
+                            typography = chatTypography,
+                            content = segment.text,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        is MarkdownSegment.Code -> CodeBlock(
+                            language = segment.language,
+                            code = segment.code,
+                        )
+                    }
+                }
             }
         }
+    }
+}
+
+/**
+ * Wrapper around [Markdown] that applies custom [MarkdownDimens] to fix
+ * table cell truncation. Extracted to keep [TextPart] readable.
+ */
+@Composable
+private fun ChatMarkdown(
+    colors: com.mikepenz.markdown.model.MarkdownColors,
+    typography: com.mikepenz.markdown.model.MarkdownTypography,
+    content: String,
+    modifier: Modifier = Modifier,
+) {
+    CompositionLocalProvider(LocalMarkdownDimens provides rememberChatMarkdownDimens()) {
+        Markdown(
+            content = content,
+            modifier = modifier,
+            typography = typography,
+            colors = colors,
+        )
     }
 }

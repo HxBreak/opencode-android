@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -23,7 +22,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,7 +37,6 @@ import me.xiaok.opencode.domain.model.Part
 internal fun MessageBubble(
     message: Message,
     parts: List<Part>,
-    onMenuClick: () -> Unit = {},
     onNavigateToSession: (String) -> Unit = {},
     childSessionIds: Map<String, String> = emptyMap(),
     fontSize: String = "medium",
@@ -63,7 +60,6 @@ internal fun MessageBubble(
         message.isAssistant -> AssistantMessageBubble(
             message = message,
             parts = parts,
-            onMenuClick = onMenuClick,
             onNavigateToSession = onNavigateToSession,
             childSessionIds = childSessionIds,
             fontSize = fontSize,
@@ -187,22 +183,15 @@ internal fun UserMessageBubble(
 internal fun AssistantMessageBubble(
     message: Message,
     parts: List<Part>,
-    onMenuClick: () -> Unit = {},
+    fontSize: String = "medium",
     onNavigateToSession: (String) -> Unit = {},
     childSessionIds: Map<String, String> = emptyMap(),
-    fontSize: String = "medium",
     onQuestionClick: (() -> Unit)? = null,
     onNavigateToToolDetail: (String) -> Unit = {},
     isLatestActiveReasoning: Boolean = false,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onLongPress = { onMenuClick() }
-                )
-            }
+        modifier = Modifier.fillMaxWidth()
     ) {
         // Error indicator
         val errorInfo = message.info.error

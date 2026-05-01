@@ -3,7 +3,7 @@ package me.xiaok.opencode.ui.screens.chat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -61,6 +61,15 @@ fun ToolCard(
         return
     }
 
+    if (toolName == "skill") {
+        SkillToolCard(
+            state = state,
+            modifier = modifier,
+            onClick = onClick,
+        )
+        return
+    }
+
     val typeInfo = getToolTypeInfo(toolName)
     val (statusColor, statusLabel) = toolStatusInfo(state)
     val isRunning = state.isRunning || state.isPending
@@ -70,13 +79,9 @@ fun ToolCard(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp)),
-        color = statusColor.copy(alpha = 0.04f),
-        border = BorderStroke(
-            width = 0.5.dp,
-            color = statusColor.copy(alpha = 0.25f),
-        ),
-        shape = RoundedCornerShape(8.dp),
+            .clip(RoundedCornerShape(6.dp)),
+        color = statusColor.copy(alpha = 0.03f),
+        shape = RoundedCornerShape(6.dp),
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Surface(
@@ -92,23 +97,16 @@ fun ToolCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (isRunning) {
-                        PulsingDot(color = statusColor, size = 8.dp)
+                        PulsingDot(color = statusColor, size = 5.dp)
                     } else {
-                        StatusDot(color = statusColor, size = 8.dp)
+                        StatusDot(color = statusColor, size = 5.dp)
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Text(
-                        text = typeInfo.emoji,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
 
                     Text(
                         text = typeInfo.displayName,
@@ -121,7 +119,7 @@ fun ToolCard(
 
                     val subtitle = extractSubtitle(toolName, state.input)
                     if (subtitle.isNotEmpty()) {
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = subtitle,
                             style = MaterialTheme.typography.bodySmall.copy(
@@ -133,7 +131,7 @@ fun ToolCard(
                             overflow = TextOverflow.Ellipsis,
                         )
                     } else if (state.title.isNotEmpty()) {
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = state.title,
                             style = MaterialTheme.typography.bodySmall.copy(
@@ -148,7 +146,7 @@ fun ToolCard(
                         val tags = extractArgTags(toolName, state.input)
                         if (tags.isNotEmpty()) {
                             tags.forEach { (key, value) ->
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
                                 Surface(
                                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                     shape = RoundedCornerShape(3.dp),
@@ -161,7 +159,7 @@ fun ToolCard(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                        modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp),
                                     )
                                 }
                             }
@@ -206,14 +204,14 @@ fun ToolCard(
                         Icon(
                             imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                             contentDescription = if (expanded) "Collapse" else "Expand",
-                            modifier = Modifier.size(14.dp),
+                            modifier = Modifier.size(12.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                         )
                     } else {
                         Icon(
                             imageVector = Icons.Default.ChevronRight,
                             contentDescription = "View details",
-                            modifier = Modifier.size(14.dp),
+                            modifier = Modifier.size(12.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                         )
                     }
@@ -230,7 +228,7 @@ fun ToolCard(
                         Surface(
                             color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
                             shape = RoundedCornerShape(4.dp),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         ) {
                             Text(
                                 text = state.error,
@@ -238,7 +236,7 @@ fun ToolCard(
                                     fontFamily = FontFamily.Monospace,
                                 ),
                                 color = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.padding(8.dp),
+                                modifier = Modifier.padding(6.dp),
                             )
                         }
                     }
@@ -255,12 +253,78 @@ fun ToolCard(
 
                     TextButton(
                         onClick = onClick,
-                        modifier = Modifier.padding(horizontal = 10.dp),
+                        modifier = Modifier.padding(horizontal = 6.dp),
                     ) {
                         Text("View full details")
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Skill - centered compact card
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun SkillToolCard(
+    state: ToolState,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit = {},
+) {
+    val (statusColor, _) = toolStatusInfo(state)
+    val isRunning = state.isRunning || state.isPending
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        color = statusColor.copy(alpha = 0.03f),
+        shape = RoundedCornerShape(6.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            if (isRunning) {
+                PulsingDot(color = statusColor, size = 5.dp)
+            } else {
+                StatusDot(color = statusColor, size = 5.dp)
+            }
+
+            Spacer(modifier = Modifier.width(5.dp))
+
+            Text(
+                text = state.title.ifEmpty { "Skill" },
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+
+            if (state.isRunning) {
+                Spacer(modifier = Modifier.width(5.dp))
+                Surface(
+                    color = statusColor.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(4.dp),
+                ) {
+                    Text(
+                        text = "Running",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontStyle = FontStyle.Italic,
+                        ),
+                        color = statusColor,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                    )
                 }
             }
         }

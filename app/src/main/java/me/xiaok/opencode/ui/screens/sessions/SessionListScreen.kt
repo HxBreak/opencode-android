@@ -287,9 +287,7 @@ fun SessionListScreen(
             }
 
             if (uiState.sessions.isEmpty() && !uiState.isLoading) {
-                SessionEmptyState(
-                    onCreateSession = onCreateSession,
-                )
+                SessionEmptyState()
             } else {
                 val grouped = uiState.sessions.groupBy { it.directory }
                     .toList()

@@ -66,7 +66,7 @@ internal fun BashOutputContent(output: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 2.dp),
+            .padding(horizontal = 6.dp, vertical = 2.dp),
     ) {
         if (commandLine != null) {
             Surface(
@@ -76,7 +76,7 @@ internal fun BashOutputContent(output: String) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     SelectionContainer(modifier = Modifier.weight(1f)) {
@@ -117,7 +117,7 @@ internal fun BashOutputContent(output: String) {
                     bottomEnd = 4.dp,
                 ),
             ) {
-                Column(modifier = Modifier.padding(8.dp)) {
+                Column(modifier = Modifier.padding(6.dp)) {
                     SelectionContainer {
                         Text(
                             text = previewLines.joinToString("\n"),
@@ -165,7 +165,7 @@ internal fun DiffOutputContent(output: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 2.dp),
+            .padding(horizontal = 6.dp, vertical = 2.dp),
     ) {
         Surface(
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -174,7 +174,7 @@ internal fun DiffOutputContent(output: String) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -259,7 +259,7 @@ internal fun LinksOutputContent(output: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 2.dp),
+            .padding(horizontal = 6.dp, vertical = 2.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         previewLines.forEach { line ->
@@ -277,7 +277,7 @@ internal fun LinksOutputContent(output: String) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
                 )
             }
         }
@@ -302,9 +302,9 @@ internal fun GenericOutputContent(output: String) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(4.dp),
-        modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
     ) {
-        Column(modifier = Modifier.padding(8.dp)) {
+        Column(modifier = Modifier.padding(6.dp)) {
             SelectionContainer {
                 Text(
                     text = previewLines.joinToString("\n"),

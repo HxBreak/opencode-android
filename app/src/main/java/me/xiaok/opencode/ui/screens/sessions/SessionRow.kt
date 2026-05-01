@@ -257,96 +257,82 @@ internal fun SessionRow(
 
                         // Overflow menu icon
                         if (!isSelectionMode) {
-                            IconButton(
-                                onClick = { showContextMenu = true },
-                                modifier = Modifier.size(24.dp),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "More options",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha),
-                                    modifier = Modifier.size(18.dp),
-                                )
+                            Box {
+                                IconButton(
+                                    onClick = { showContextMenu = true },
+                                    modifier = Modifier.size(24.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "More options",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha),
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = showContextMenu,
+                                    onDismissRequest = { showContextMenu = false },
+                                ) {
+                                    // TODO: Unarchive disabled — server Zod schema doesn't accept null yet
+                                    if (session.time.archived == null) {
+                                        DropdownMenuItem(
+                                            text = { Text("Archive") },
+                                            onClick = {
+                                                showContextMenu = false
+                                                onArchive()
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.Archive,
+                                                    contentDescription = null,
+                                                )
+                                            },
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text("Copy URL") },
+                                        onClick = {
+                                            showContextMenu = false
+                                            onCopyUrl()
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.ContentCopy,
+                                                contentDescription = null,
+                                            )
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Rename") },
+                                        onClick = {
+                                            showContextMenu = false
+                                            onSwipeRename()
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = null,
+                                            )
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Delete") },
+                                        onClick = {
+                                            showContextMenu = false
+                                            onSwipeDelete()
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error,
+                                            )
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
-                }
-
-                DropdownMenu(
-                    expanded = showContextMenu,
-                    onDismissRequest = { showContextMenu = false },
-                ) {
-                    // TODO: Unarchive disabled — server Zod schema doesn't accept null yet
-                    // if (session.time.archived != null) {
-                    //     DropdownMenuItem(
-                    //         text = { Text("Unarchive") },
-                    //         onClick = {
-                    //             showContextMenu = false
-                    //             onUnarchive()
-                    //         },
-                    //         leadingIcon = {
-                    //             Icon(
-                    //                 imageVector = Icons.Default.Unarchive,
-                    //                 contentDescription = null,
-                    //             )
-                    //         },
-                    //     )
-                    // } else
-                    if (session.time.archived == null) {
-                        DropdownMenuItem(
-                            text = { Text("Archive") },
-                            onClick = {
-                                showContextMenu = false
-                                onArchive()
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Archive,
-                                    contentDescription = null,
-                                )
-                            },
-                        )
-                    }
-                    DropdownMenuItem(
-                        text = { Text("Copy URL") },
-                        onClick = {
-                            showContextMenu = false
-                            onCopyUrl()
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = null,
-                            )
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Rename") },
-                        onClick = {
-                            showContextMenu = false
-                            onSwipeRename()
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = null,
-                            )
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Delete") },
-                        onClick = {
-                            showContextMenu = false
-                            onSwipeDelete()
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                        },
-                    )
                 }
             }
         },
