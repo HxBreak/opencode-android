@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import org.junit.Before
 import org.junit.Test
@@ -26,6 +27,7 @@ class ScreenshotTest {
 
     @Test
     fun captureAllScreens() {
+        ScreenshotHelper.wakeUpScreen(device)
         ScreenshotHelper.launchApp(context)
         ScreenshotHelper.waitForApp(device)
         ScreenshotHelper.takeScreenshot(device, "01_home")
@@ -52,7 +54,7 @@ class ScreenshotTest {
 
         val addButton = device.findObject(By.desc("Add server"))
         if (addButton == null) return
-        addButton.click()
+        addButton.findClickableParent().click()
 
         val dialogAppeared = device.wait(Until.hasObject(By.text("Add Server")), 5_000)
         if (!dialogAppeared) return
@@ -116,4 +118,13 @@ class ScreenshotTest {
                 r.width() > 300 && r.height() > 80 && r.centerY() > 300
             }
             .minByOrNull { it.visibleBounds.top }
+
+    private fun UiObject2.findClickableParent(): UiObject2 {
+        var current: UiObject2? = this
+        while (current != null) {
+            if (current.isClickable) return current
+            current = current.parent
+        }
+        return this
+    }
 }

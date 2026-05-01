@@ -81,8 +81,25 @@ fun UiDevice.clickText(text: String): Boolean {
 /** Find element by content-description and click it. Returns false if not found. */
 fun UiDevice.clickDesc(desc: String): Boolean {
     val obj = findObject(By.desc(desc)) ?: return false
-    obj.click()
+    clickWithClickableParent(obj)
     return true
+}
+
+/**
+ * Click the object, or if it's not clickable, walk up to find the nearest clickable ancestor.
+ * Compose Icon inside IconButton is not clickable itself — the parent IconButton is.
+ */
+private fun clickWithClickableParent(obj: UiObject2) {
+    obj.findClickableParent().click()
+}
+
+fun UiObject2.findClickableParent(): UiObject2 {
+    var current: UiObject2? = this
+    while (current != null) {
+        if (current.isClickable) return current
+        current = current.parent
+    }
+    return this
 }
 
 /** Find element by text, wait up to timeout, then click. */
@@ -94,7 +111,7 @@ fun UiDevice.waitForAndClick(description: String, text: String, timeoutMs: Long)
 /** Find element by content-description, wait up to timeout, then click. */
 fun UiDevice.waitForAndClickDesc(description: String, desc: String, timeoutMs: Long) {
     val obj = waitForDescOrFail(description, desc, timeoutMs)
-    obj.click()
+    clickWithClickableParent(obj)
 }
 
 // --- Assert helpers ---

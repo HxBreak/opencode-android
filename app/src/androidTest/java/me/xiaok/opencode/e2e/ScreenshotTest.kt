@@ -55,6 +55,7 @@ class ScreenshotTest {
         screenshotDir = ScreenshotHelper.getScreenshotDir()
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        ScreenshotHelper.wakeUpScreen(device)
         ScreenshotHelper.launchApp(context)
         ScreenshotHelper.waitForApp(device)
     }

@@ -6,6 +6,7 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import me.xiaok.opencode.e2e.utils.TestConfig
 import me.xiaok.opencode.e2e.utils.captureStep
+import me.xiaok.opencode.e2e.utils.findClickableParent
 import me.xiaok.opencode.e2e.utils.waitForCondition
 
 /**
@@ -100,7 +101,7 @@ class ImageSteps(
     fun cancelPhotoPicker() {
         val cancelBtn = device.findObject(By.desc("Cancel"))
             ?: throw AssertionError("Cancel button not found in Photo Picker")
-        cancelBtn.click()
+        cancelBtn.findClickableParent().click()
 
         device.waitForCondition("Photo Picker to close after cancel", timeout) {
             !isPhotoPickerOpen()
@@ -133,7 +134,7 @@ class ImageSteps(
     fun removeAttachedImage() {
         val removeBtn = device.findObject(By.desc("Remove"))
             ?: throw AssertionError("Remove button not found on image preview")
-        removeBtn.click()
+        removeBtn.findClickableParent().click()
         Thread.sleep(300)
     }
 

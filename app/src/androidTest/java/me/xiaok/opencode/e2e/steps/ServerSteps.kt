@@ -3,6 +3,7 @@ package me.xiaok.opencode.e2e.steps
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import me.xiaok.opencode.e2e.utils.TestConfig
+import me.xiaok.opencode.e2e.utils.clickDesc
 import me.xiaok.opencode.e2e.utils.clickText
 import me.xiaok.opencode.e2e.utils.dismissKeyboardIfNeeded
 import me.xiaok.opencode.e2e.utils.typeInEditText
@@ -25,8 +26,8 @@ class ServerSteps(
         // Wait for add server button
         device.waitForDescOrFail("Add server button", "Add server", timeout)
 
-        // Click it → wait for dialog
-        device.waitForDesc("Add server", timeout)?.click()
+        // Click it → wait for dialog (Icon is not clickable, use clickDesc which walks up)
+        device.clickDesc("Add server")
         Thread.sleep(500)
 
         // Verify dialog appeared

@@ -4,6 +4,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import me.xiaok.opencode.e2e.utils.TestConfig
 import me.xiaok.opencode.e2e.utils.captureStep
+import me.xiaok.opencode.e2e.utils.findClickableParent
 import me.xiaok.opencode.e2e.utils.waitForCondition
 
 /**
@@ -154,7 +155,7 @@ class SelectorSteps(
     fun openModelPicker() {
         val modelChip = device.findObject(By.desc("Model selector"))
             ?: throw AssertionError("Model chip not found")
-        modelChip.click()
+        modelChip.findClickableParent().click()
 
         device.waitForCondition("Model picker dialog to appear", timeout) {
             device.findObject(By.text("Select Model")) != null

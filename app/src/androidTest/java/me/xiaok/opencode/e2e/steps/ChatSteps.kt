@@ -3,6 +3,7 @@ package me.xiaok.opencode.e2e.steps
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import me.xiaok.opencode.e2e.utils.TestConfig
+import me.xiaok.opencode.e2e.utils.findClickableParent
 import me.xiaok.opencode.e2e.utils.typeTextInCompose
 import me.xiaok.opencode.e2e.utils.waitForCondition
 
@@ -22,7 +23,7 @@ class ChatSteps(
 
         val sendBtn = device.findObject(By.desc("Send"))
             ?: throw AssertionError("Send button not found")
-        sendBtn.click()
+        sendBtn.findClickableParent().click()
 
         device.waitForCondition("Input to clear after send", config.timeout(5_000)) {
             val field = device.findObject(By.clazz("android.widget.EditText"))

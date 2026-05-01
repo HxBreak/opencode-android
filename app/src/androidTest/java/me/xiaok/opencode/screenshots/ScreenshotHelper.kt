@@ -2,6 +2,7 @@ package me.xiaok.opencode.screenshots
 
 import android.content.Context
 import android.content.Intent
+import android.view.KeyEvent
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
@@ -66,6 +67,17 @@ object ScreenshotHelper {
             return true
         }
         return false
+    }
+
+    /**
+     * Wake up the device screen and dismiss keyguard.
+     * Without this, emulators/phones with screen off cause "Active window root not found"
+     * and ANR because the app window never gains focus.
+     */
+    fun wakeUpScreen(device: UiDevice) {
+        device.pressKeyCode(KeyEvent.KEYCODE_WAKEUP)
+        device.pressMenu()
+        Thread.sleep(500)
     }
 
     fun launchApp(context: Context) {

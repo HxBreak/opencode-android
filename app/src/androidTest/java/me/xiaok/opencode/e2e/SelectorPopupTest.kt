@@ -57,6 +57,7 @@ class SelectorPopupTest {
         selectorSteps = SelectorSteps(device, config)
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        ScreenshotHelper.wakeUpScreen(device)
         ScreenshotHelper.launchApp(context)
         ScreenshotHelper.waitForApp(device)
     }

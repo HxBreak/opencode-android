@@ -3,6 +3,7 @@ package me.xiaok.opencode.e2e.steps
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import me.xiaok.opencode.e2e.utils.TestConfig
+import me.xiaok.opencode.e2e.utils.findClickableParent
 import me.xiaok.opencode.e2e.utils.typeTextInCompose
 import me.xiaok.opencode.e2e.utils.waitForCondition
 
@@ -43,7 +44,7 @@ class CommandSteps(
 
         val sendBtn = device.findObject(By.desc("Send"))
             ?: throw AssertionError("Send button not found")
-        sendBtn.click()
+        sendBtn.findClickableParent().click()
 
         device.waitForCondition("Input to clear after shell command", config.timeout(5_000)) {
             val field = device.findObject(By.clazz("android.widget.EditText"))
@@ -91,7 +92,7 @@ class CommandSteps(
 
         val sendBtn = device.findObject(By.desc("Send"))
         if (sendBtn != null && sendBtn.isEnabled) {
-            sendBtn.click()
+            sendBtn.findClickableParent().click()
         }
 
         device.waitForCondition("Server command response", config.timeout(90_000)) {

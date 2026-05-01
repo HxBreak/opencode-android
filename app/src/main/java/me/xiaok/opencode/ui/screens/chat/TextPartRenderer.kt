@@ -561,7 +561,18 @@ private fun ChatMarkdown(
     content: String,
     modifier: Modifier = Modifier,
 ) {
-    CompositionLocalProvider(LocalMarkdownDimens provides rememberChatMarkdownDimens()) {
+    val dimens = remember {
+        object : MarkdownDimens {
+            override val dividerThickness: Dp = 1.dp
+            override val codeBackgroundCornerSize: Dp = 4.dp
+            override val blockQuoteThickness: Dp = 4.dp
+            override val tableMaxWidth: Dp = Dp.Unspecified
+            override val tableCellWidth: Dp = 250.dp
+            override val tableCellPadding: Dp = 8.dp
+            override val tableCornerSize: Dp = 4.dp
+        }
+    }
+    CompositionLocalProvider(LocalMarkdownDimens provides dimens) {
         Markdown(
             content = content,
             modifier = modifier,

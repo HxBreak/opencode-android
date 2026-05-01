@@ -64,7 +64,8 @@ class E2EFlowTest {
         chatSteps = ChatSteps(device, config)
         commandSteps = CommandSteps(device, config)
 
-        // Launch app
+        ScreenshotHelper.wakeUpScreen(device)
+
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         ScreenshotHelper.launchApp(context)
         ScreenshotHelper.waitForApp(device)

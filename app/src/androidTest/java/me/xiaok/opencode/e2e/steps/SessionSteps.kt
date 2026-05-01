@@ -3,6 +3,7 @@ package me.xiaok.opencode.e2e.steps
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import me.xiaok.opencode.e2e.utils.TestConfig
+import me.xiaok.opencode.e2e.utils.findClickableParent
 import me.xiaok.opencode.e2e.utils.waitForCondition
 import me.xiaok.opencode.e2e.utils.waitForDescOrFail
 import me.xiaok.opencode.e2e.utils.waitForTextOrFail
@@ -19,7 +20,8 @@ class SessionSteps(
     }
 
     fun createNewSession() {
-        device.waitForDescOrFail("New Session FAB", "New Session", timeout).click()
+        val fab = device.waitForDescOrFail("New Session FAB", "New Session", timeout)
+        fab.findClickableParent().click()
 
         device.waitForCondition("Chat screen to load", timeout) {
             device.findObject(By.clazz("android.widget.EditText")) != null
