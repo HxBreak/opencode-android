@@ -161,7 +161,7 @@ class ChatViewModel @Inject constructor(
         partial to groupMessagesIntoTurns(partial.messages, partial.parts)
     }.distinctUntilChanged { (old, _), (new, _) ->
         old == new
-    }.flowOn(Dispatchers.Default)
+    }
     .conflate()
     .flatMapLatest { (partial, turns) ->
         combine(
@@ -259,7 +259,9 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
+    }
+    .flowOn(Dispatchers.Default)
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
     private data class SelectorPartialState(
         val providers: List<Provider>,

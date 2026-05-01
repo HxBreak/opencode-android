@@ -18,6 +18,7 @@ data class TestConfig(
     val password: String,
     val projectPath: String,
     val timeoutMultiplier: Float,
+    val debugOnFailure: Boolean = false,
 ) {
     val hasAuth: Boolean get() = username.isNotBlank()
 
@@ -41,6 +42,7 @@ data class TestConfig(
                 password = args.getString("password", ""),
                 projectPath = projectPath,
                 timeoutMultiplier = args.getString("timeoutMultiplier", "1.0").toFloatOrNull() ?: 1.0f,
+                debugOnFailure = args.getString("debugOnFailure", "false").toBoolean(),
             )
         }
     }
