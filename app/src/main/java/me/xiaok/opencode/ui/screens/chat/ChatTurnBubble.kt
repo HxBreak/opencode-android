@@ -89,40 +89,48 @@ internal fun TurnBubble(
             val userModel = turn.userMessage.info.model
             val hasTime = createdMs > 0
             val hasModel = userModel != null && userModel.modelID.isNotBlank()
-            if (hasTime || hasModel) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(end = 4.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (hasTime) {
+                    Text(
+                        text = remember(createdMs) { formatMessageTime(createdMs) },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    )
+                }
+                if (hasTime && hasModel) {
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Text(
+                        text = "·",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    )
+                    Spacer(modifier = Modifier.size(4.dp))
+                }
+                if (hasModel) {
+                    Text(
+                        text = buildString {
+                            append(userModel.modelID)
+                            if (userModel.providerID.isNotBlank()) append(" · ${userModel.providerID}")
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    )
+                }
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(24.dp),
                 ) {
-                    if (hasTime) {
-                        Text(
-                            text = remember(createdMs) { formatMessageTime(createdMs) },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        )
-                    }
-                    if (hasTime && hasModel) {
-                        Spacer(modifier = Modifier.size(4.dp))
-                        Text(
-                            text = "·",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        )
-                        Spacer(modifier = Modifier.size(4.dp))
-                    }
-                    if (hasModel) {
-                        Text(
-                            text = buildString {
-                                append(userModel.modelID)
-                                if (userModel.providerID.isNotBlank()) append(" · ${userModel.providerID}")
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Message options",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(16.dp),
+                    )
                 }
             }
         }
@@ -187,21 +195,6 @@ internal fun TurnBubble(
             }
         }
 
-        }
-
-        // ⋮ menu button — top-end corner
-        IconButton(
-            onClick = { showMenu = true },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 2.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Default.MoreVert,
-                contentDescription = "Message options",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier.size(20.dp),
-            )
         }
 
         // Dropdown menu — anchored to the ⋮ button
