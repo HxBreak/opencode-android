@@ -94,7 +94,8 @@ internal fun TurnBubble(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(end = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (hasTime) {
                         Text(
@@ -102,8 +103,15 @@ internal fun TurnBubble(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         )
-                    } else {
-                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                    if (hasTime && hasModel) {
+                        Spacer(modifier = Modifier.size(4.dp))
+                        Text(
+                            text = "·",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        )
+                        Spacer(modifier = Modifier.size(4.dp))
                     }
                     if (hasModel) {
                         Text(
