@@ -57,7 +57,9 @@ class ChatCommandUseCase @Inject constructor(
         if (eventReducer.sessionStatuses.value[sessionId] !is SessionStatus.Idle) {
             try {
                 sessionOpsUseCase.abortSession(serverId, sessionId, directory)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                errorCollector.logError(e, "Chat")
+            }
         }
 
         val lastUserMessage = messages.lastOrNull { it.isUser } ?: return CommandResult.Error("No user message to undo")

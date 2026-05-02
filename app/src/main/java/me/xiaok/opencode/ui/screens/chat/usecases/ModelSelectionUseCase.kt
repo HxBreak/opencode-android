@@ -8,6 +8,7 @@ import me.xiaok.opencode.data.repository.MetadataCache
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.data.repository.SettingsRepository
 import me.xiaok.opencode.domain.model.*
+import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +23,7 @@ class ModelSelectionUseCase @Inject constructor(
     private val serverRepository: ServerRepository,
     private val settingsRepository: SettingsRepository,
     private val metadataCache: MetadataCache,
+    private val errorCollector: ErrorCollector,
 ) {
     val rawProviders = MutableStateFlow<List<Provider>>(emptyList())
     val hiddenModels = MutableStateFlow<Set<String>>(emptySet())
@@ -38,7 +40,7 @@ class ModelSelectionUseCase @Inject constructor(
     val shareConfig = MutableStateFlow<String?>(null) // "manual" | "auto" | "disabled" | null (unknown)
     var modelDefaultsApplied = false
 
-    suspend fun loadProviders(serverId: String) {
+    suspend fun loadProviders(serverId: String, onError: (String) -> Unit = {}) {
         try {
             val server = serverRepository.getServer(serverId) ?: return
             val providerList = metadataCache.getProviders(serverId, server)
@@ -51,7 +53,10 @@ class ModelSelectionUseCase @Inject constructor(
             // called tryApplyModelDefaults() before providers were available,
             // leaving selectedModel as null.
             tryApplyModelDefaults()
-        } catch (_: Exception) { }
+        } catch (e: Exception) {
+            errorCollector.logError(e, "Chat")
+            onError("Failed to load models: ${e.message}")
+        }
     }
 
     fun applyHiddenFilter() {
@@ -80,7 +85,7 @@ class ModelSelectionUseCase @Inject constructor(
         }
     }
 
-    suspend fun loadAgents(serverId: String) {
+    suspend fun loadAgents(serverId: String, onError: (String) -> Unit = {}) {
         try {
             val server = serverRepository.getServer(serverId) ?: return
             val agentList = metadataCache.getAgents(serverId, server)
@@ -95,7 +100,10 @@ class ModelSelectionUseCase @Inject constructor(
                     selectedAgent.value = visibleAgents.firstOrNull()?.name
                 }
             }
-        } catch (_: Exception) { }
+        } catch (e: Exception) {
+            errorCollector.logError(e, "Chat")
+            onError("Failed to load agents: ${e.message}")
+        }
     }
 
     suspend fun loadCommands(serverId: String) {
@@ -159,7 +167,7 @@ class ModelSelectionUseCase @Inject constructor(
         }
     }
 
-    suspend fun loadConfiguredModel(serverId: String) {
+    suspend fun loadConfiguredModel(serverId: String, onError: (String) -> Unit = {}) {
         settingsRepository.getRecentModel(serverId).first()?.let { savedModel.value = it }
         try {
             val server = serverRepository.getServer(serverId) ?: return
@@ -179,7 +187,10 @@ class ModelSelectionUseCase @Inject constructor(
                 shareConfig.value = shareStr
             }
             tryApplyModelDefaults()
-        } catch (_: Exception) { }
+        } catch (e: Exception) {
+            errorCollector.logError(e, "Chat")
+            onError("Failed to load server config: ${e.message}")
+        }
     }
 
     fun tryApplyModelDefaults() {

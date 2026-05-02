@@ -67,6 +67,7 @@ class ChatViewModel @Inject constructor(
 
     private val _isSending = MutableStateFlow(false)
     internal val _error = MutableStateFlow<String?>(null)
+    private val showError: (String) -> Unit = { msg -> _error.value = msg }
     private val _commandMessage = MutableStateFlow<String?>(null)
     private val _commandMessageId = MutableStateFlow(0L)
     private val _isLoading = MutableStateFlow(false)
@@ -308,11 +309,11 @@ class ChatViewModel @Inject constructor(
         }
         loadMessages()
         loadSessionStatus()
-        viewModelScope.launch { modelSelectionUseCase.loadProviders(serverId) }
+        viewModelScope.launch { modelSelectionUseCase.loadProviders(serverId, showError) }
         modelSelectionUseCase.observeHiddenFilter(serverId, viewModelScope)
-        viewModelScope.launch { modelSelectionUseCase.loadAgents(serverId) }
+        viewModelScope.launch { modelSelectionUseCase.loadAgents(serverId, showError) }
         viewModelScope.launch { modelSelectionUseCase.loadCommands(serverId) }
-        viewModelScope.launch { modelSelectionUseCase.loadConfiguredModel(serverId) }
+        viewModelScope.launch { modelSelectionUseCase.loadConfiguredModel(serverId, showError) }
         loadChildSessions()
         loadPendingQuestions()
         loadTodosFromParts()
@@ -391,8 +392,9 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 sessionNavigationUseCase.loadChildSessions(serverId, sessionId)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 Log.d(TAG, "loadChildSessions: no children or failed for session=$sessionId")
+                errorCollector.logError(e, "Chat")
             }
         }
     }

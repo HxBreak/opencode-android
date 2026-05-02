@@ -5,12 +5,14 @@ import me.xiaok.opencode.data.api.OpenCodeApi
 import me.xiaok.opencode.data.repository.EventReducer
 import me.xiaok.opencode.data.repository.ServerRepository
 import me.xiaok.opencode.domain.model.MentionItem
+import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
 
 class MentionManagementUseCase @Inject constructor(
     private val api: OpenCodeApi,
     private val eventReducer: EventReducer,
     private val serverRepository: ServerRepository,
+    private val errorCollector: ErrorCollector,
 ) {
     fun addMention(
         currentMentions: List<MentionItem>,
@@ -71,7 +73,8 @@ class MentionManagementUseCase @Inject constructor(
             val server = serverRepository.getServer(serverId) ?: return emptyList()
             val directory = eventReducer.sessions.value[sessionId]?.directory
             api.fileSearch(server, query, limit = 20, directory = directory)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            errorCollector.logError(e, "Chat")
             emptyList()
         }
     }
