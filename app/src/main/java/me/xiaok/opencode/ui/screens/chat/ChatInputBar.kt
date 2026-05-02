@@ -49,7 +49,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -108,6 +110,11 @@ fun ChatInputBar(
     var mentionStartIndex by remember { mutableStateOf(-1) }
     var fileResults by remember { mutableStateOf<List<String>>(emptyList()) }
 
+    // Tracks when user clicked a server command, to dismiss the command popup.
+    // Reset when text changes from user input (text != dismissedCommandText).
+    var commandPopupDismissed by remember { mutableStateOf(false) }
+    var dismissedCommandText by remember { mutableStateOf("") }
+
     LaunchedEffect(atDetection) {
         if (atDetection != null) {
             showMentionPopup = true
@@ -150,7 +157,8 @@ fun ChatInputBar(
         else commands.filter {
             it.name.contains(commandQuery, ignoreCase = true)
         }
-    val hasAnyCommands = isCommandMode && (filteredBuiltin.isNotEmpty() || filteredServerCommands.isNotEmpty())
+    val commandPopupVisible = isCommandMode && !(commandPopupDismissed && text == dismissedCommandText)
+    val hasAnyCommands = commandPopupVisible && (filteredBuiltin.isNotEmpty() || filteredServerCommands.isNotEmpty())
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -267,7 +275,10 @@ fun ChatInputBar(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        onTextChange("/${cmd.name} ")
+                                        val newText = "/${cmd.name} "
+                                        commandPopupDismissed = true
+                                        dismissedCommandText = newText
+                                        onTextChange(newText)
                                     }
                                     .padding(horizontal = 12.dp, vertical = 6.dp),
                             ) {
@@ -366,8 +377,8 @@ fun ChatInputBar(
                 }
 
                 OutlinedTextField(
-                    value = text,
-                    onValueChange = onTextChange,
+                    value = TextFieldValue(text, TextRange(text.length)),
+                    onValueChange = { onTextChange(it.text) },
                     modifier = Modifier.weight(1f).testTag("chat_input"),
                     visualTransformation = if (mentionDisplayTexts.isNotEmpty()) {
                         MentionTransformation(mentionDisplayTexts)
