@@ -300,7 +300,7 @@ private fun SkillToolCard(
             Spacer(modifier = Modifier.width(5.dp))
 
             Text(
-                text = state.title.ifEmpty { "Skill" },
+                text = extractSubtitle("skill", state.input).ifEmpty { "Skill" },
                 style = MaterialTheme.typography.bodySmall.copy(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Medium,

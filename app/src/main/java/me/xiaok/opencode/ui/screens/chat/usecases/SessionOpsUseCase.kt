@@ -84,7 +84,8 @@ class SessionOpsUseCase @Inject constructor(
     ) {
         val server = serverRepository.getServer(serverId)
             ?: throw IllegalStateException("Server not found: $serverId")
-        val model = selectedModel ?: throw IllegalStateException("No model selected")
+        val model = selectedModel ?: inferModelFromSessionMessages(sessionId)
+            ?: throw IllegalStateException("No model selected")
         val result = api.summarizeSession(
             conn = server,
             sessionId = sessionId,
@@ -95,6 +96,15 @@ class SessionOpsUseCase @Inject constructor(
         if (!result) {
             throw IllegalStateException("Server declined summarize request for session $sessionId")
         }
+    }
+
+    private fun inferModelFromSessionMessages(sessionId: String): ModelRef? {
+        val lastAssistant = eventReducer.messages.value[sessionId]
+            ?.lastOrNull { it.isAssistant }
+            ?: return null
+        val providerId = lastAssistant.info.providerID ?: return null
+        val modelId = lastAssistant.info.modelID ?: return null
+        return ModelRef(providerID = providerId, modelID = modelId)
     }
 
     suspend fun renameSession(

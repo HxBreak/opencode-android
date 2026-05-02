@@ -80,6 +80,8 @@ internal fun extractSubtitle(toolName: String, input: JsonElement?): String {
             val desc = obj.stringField("description")
             if (desc.isNotEmpty()) desc else obj.stringField("subagent_type")
         }
+        // skill: subtitle = skill name from input
+        "skill" -> obj.stringField("name")
         else -> buildString {
             val desc = obj.stringField("description")
             if (desc.isNotEmpty()) { append(desc); return@buildString }

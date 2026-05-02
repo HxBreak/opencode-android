@@ -664,6 +664,47 @@ class ChatViewModelTest {
         coVerify { api.summarizeSession(testServer, eq(testSession.id), any(), any(), any()) }
     }
 
+    @Test
+    fun `summarizeSession falls back to last assistant message model when none selected`() = testScope.runTest {
+        coEvery { api.summarizeSession(testServer, any(), any(), any(), any()) } returns true
+        eventReducer.setSessions(testServer.id, listOf(testSession))
+        eventReducer.setMessages(
+            testSession.id,
+            listOf(
+                TestFixtures.testMessage(
+                    info = TestFixtures.testUserMessageInfo(
+                        id = "msg_user",
+                        sessionID = testSession.id,
+                    ),
+                ),
+                TestFixtures.testMessage(
+                    info = TestFixtures.testMessageInfo(
+                        id = "msg_assistant",
+                        sessionID = testSession.id,
+                        providerID = "openai",
+                        modelID = "gpt-4.1",
+                    ),
+                ),
+            ),
+        )
+
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        vm.summarizeSession()
+        advanceUntilIdle()
+
+        coVerify {
+            api.summarizeSession(
+                testServer,
+                testSession.id,
+                "openai",
+                "gpt-4.1",
+                any(),
+            )
+        }
+    }
+
     // ====================================================================
     // abortSession
     // ====================================================================
