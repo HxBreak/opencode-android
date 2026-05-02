@@ -86,31 +86,36 @@ internal fun TurnBubble(
                 parts = userParts,
             )
             val createdMs = turn.userMessage.time.created
-            if (createdMs > 0) {
-                Text(
-                    text = remember(createdMs) { formatMessageTime(createdMs) },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(end = 4.dp),
-                    textAlign = TextAlign.End,
-                )
-            }
             val userModel = turn.userMessage.info.model
-            if (userModel != null && userModel.modelID.isNotBlank()) {
-                Text(
-                    text = buildString {
-                        append(userModel.modelID)
-                        if (userModel.providerID.isNotBlank()) append(" · ${userModel.providerID}")
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            val hasTime = createdMs > 0
+            val hasModel = userModel != null && userModel.modelID.isNotBlank()
+            if (hasTime || hasModel) {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(end = 4.dp),
-                    textAlign = TextAlign.End,
-                )
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    if (hasTime) {
+                        Text(
+                            text = remember(createdMs) { formatMessageTime(createdMs) },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                    if (hasModel) {
+                        Text(
+                            text = buildString {
+                                append(userModel.modelID)
+                                if (userModel.providerID.isNotBlank()) append(" · ${userModel.providerID}")
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        )
+                    }
+                }
             }
         }
 
