@@ -13,9 +13,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
+import me.xiaok.opencode.data.repository.ServerRepository
+import me.xiaok.opencode.domain.model.ServerConnection
 import me.xiaok.opencode.ui.navigation.OpenCodeNavGraph
 import me.xiaok.opencode.ui.theme.OpencodeandroidTheme
 import me.xiaok.opencode.utils.ErrorCollector
@@ -29,6 +33,12 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val TAG = "MainActivity"
 
+        const val EXTRA_SERVER_ID = "serverId"
+        const val EXTRA_SERVER_NAME = "serverName"
+        const val EXTRA_SERVER_URL = "serverUrl"
+        const val EXTRA_SERVER_USERNAME = "serverUsername"
+        const val EXTRA_SERVER_PASSWORD = "serverPassword"
+
         @Volatile
         var pendingShareContent: ShareIntentHandler.SharedContent? = null
             private set
@@ -36,6 +46,7 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var shareIntentHandler: ShareIntentHandler
     @Inject lateinit var errorCollector: ErrorCollector
+    @Inject lateinit var serverRepository: ServerRepository
 
     private var navController: NavHostController? = null
 
@@ -68,8 +79,37 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+
+        if (handleAddServerDeeplink(intent)) return
+
         navController?.handleDeepLink(intent)
         handleShareIntent(intent)
+    }
+
+    private fun handleAddServerDeeplink(intent: Intent): Boolean {
+        if (intent.action != Intent.ACTION_VIEW) return false
+        val data = intent.data ?: return false
+        if (data.scheme != "opencode" || data.host != "addServer") return false
+
+        val serverId = intent.getStringExtra(EXTRA_SERVER_ID) ?: return false
+        val name = intent.getStringExtra(EXTRA_SERVER_NAME) ?: return false
+        val url = intent.getStringExtra(EXTRA_SERVER_URL) ?: return false
+
+        val server = ServerConnection(
+            id = serverId,
+            name = name,
+            baseUrl = url,
+            username = intent.getStringExtra(EXTRA_SERVER_USERNAME) ?: "",
+            password = intent.getStringExtra(EXTRA_SERVER_PASSWORD) ?: "",
+            autoConnect = false,
+        )
+
+        Log.d(TAG, "addServer deeplink: id=$serverId name=$name url=$url")
+        lifecycleScope.launch {
+            serverRepository.addServer(server)
+            serverRepository.connect(serverId)
+        }
+        return true
     }
 
     private fun handleShareIntent(intent: Intent?) {

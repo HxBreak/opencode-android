@@ -2,43 +2,41 @@ package me.xiaok.opencode.e2e
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import me.xiaok.opencode.e2e.steps.ChatSteps
 import me.xiaok.opencode.e2e.steps.CommandSteps
 import me.xiaok.opencode.e2e.steps.ProjectSteps
 import me.xiaok.opencode.e2e.steps.ServerSteps
 import me.xiaok.opencode.e2e.steps.SessionSteps
+import me.xiaok.opencode.e2e.utils.DeeplinkHelper
+import me.xiaok.opencode.e2e.utils.TestApiHelper
 import me.xiaok.opencode.e2e.utils.TestConfig
 import me.xiaok.opencode.e2e.utils.captureStep
+import me.xiaok.opencode.e2e.utils.waitForCondition
 import me.xiaok.opencode.screenshots.ScreenshotHelper
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.UUID
 
 /**
- * End-to-end instrumented test covering the full user flow:
+ * End-to-end instrumented test covering the full user flow.
  *
- * S1  → Add server
- * S2  → Add project via directory browser
- * S3  → Verify session list
- * S4  → Create new session & enter chat
- * S5  → Send message & verify AI response
- * S6a → Test built-in slash command
- * S6b → Test shell command
- * S6c → Test server command (graceful skip if unavailable)
- * S7  → Delete session (teardown)
- * S8  → Delete server config (teardown)
+ * Test tiers:
+ * - Tier 1 (S1-S3): Full UI navigation — validates each setup step independently
+ * - Tier 2 (S4-S6): Fast setup via deeplink addServer + HTTP session creation + deeplink chat
+ * - Full Flow: Complete S1→S8 sequence — validates the entire journey
  *
  * Run:
  * ```
- * adb shell am instrument \
- *   -e serverName "Test Server" \
- *   -e serverUrl "http://192.168.31.52:4000" \
- *   -e username "xiaok" \
- *   -e password 'R4&nW7*bJ3^fH6!' \
- *   -e projectPath "~/projects/opencode" \
- *   -w me.xiaok.opencode.test/me.xiaok.opencode.e2e.E2EFlowTest
+ * ./gradlew connectedDebugAndroidTest \
+ *   -Pandroid.testInstrumentationRunnerArguments.serverName="Test Server" \
+ *   -Pandroid.testInstrumentationRunnerArguments.serverUrl="http://192.168.31.52:4000" \
+ *   -Pandroid.testInstrumentationRunnerArguments.username="xiaok" \
+ *   -Pandroid.testInstrumentationRunnerArguments.password='R4&nW7*bJ3^fH6!' \
+ *   -Pandroid.testInstrumentationRunnerArguments.projectPath=/home/xiaok/projects/test
  * ```
  */
 @RunWith(AndroidJUnit4::class)
@@ -52,6 +50,12 @@ class E2EFlowTest {
     private lateinit var sessionSteps: SessionSteps
     private lateinit var chatSteps: ChatSteps
     private lateinit var commandSteps: CommandSteps
+    private lateinit var apiHelper: TestApiHelper
+    private lateinit var deeplinkHelper: DeeplinkHelper
+
+    // State for Tier 2 fast setup
+    private var testServerId: String = ""
+    private var testSessionId: String = ""
 
     @Before
     fun setUp() {
@@ -63,6 +67,8 @@ class E2EFlowTest {
         sessionSteps = SessionSteps(device, config)
         chatSteps = ChatSteps(device, config)
         commandSteps = CommandSteps(device, config)
+        apiHelper = TestApiHelper(config)
+        deeplinkHelper = DeeplinkHelper(device, config)
 
         ScreenshotHelper.wakeUpScreen(device)
 
@@ -78,7 +84,11 @@ class E2EFlowTest {
     @After
     fun tearDown() {
         try {
-            // Try to return to Home and clean up
+            // Clean up session via HTTP (fast, no UI needed)
+            if (testSessionId.isNotEmpty()) {
+                try { apiHelper.deleteSession(testSessionId) } catch (_: Exception) {}
+            }
+            // Navigate home and delete server via UI
             serverSteps.navigateBackToHome()
             serverSteps.deleteServer()
             device.captureStep("99_teardown_complete")
@@ -89,7 +99,43 @@ class E2EFlowTest {
     }
 
     // ---------------------------------------------------------------
-    // S1: Add Server
+    // Fast setup for Tier 2 (chat) tests
+    // ---------------------------------------------------------------
+
+    /**
+     * Fast setup: deeplink addServer → wait for connection → HTTP create session → deeplink to chat.
+     * ~10 seconds instead of ~35 seconds for full UI setup.
+     */
+    private fun setupForChatTest() {
+        // 1. Generate a known serverId
+        testServerId = UUID.randomUUID().toString()
+
+        // 2. Add server via deeplink (app creates ServerConnection + connects)
+        deeplinkHelper.addServerAndConnect(testServerId)
+        Thread.sleep(2_000)
+
+        // 3. Wait for connection to establish
+        device.waitForCondition("Server card '${config.serverName}' to appear", config.timeout(15_000)) {
+            device.findObject(By.text(config.serverName)) != null
+        }
+        device.waitForCondition("Server connection to establish", config.timeout(30_000)) {
+            device.findObject(By.text("Connecting…")) == null
+        }
+        Thread.sleep(1_000)
+
+        // 4. Create session via HTTP
+        testSessionId = apiHelper.createSession()
+
+        // 5. Navigate to chat via deeplink
+        deeplinkHelper.navigateToChat(testServerId, testSessionId)
+
+        // 6. Wait for chat screen to load
+        sessionSteps.assertChatLoaded()
+        device.captureStep("00_chat_via_deeplink")
+    }
+
+    // ---------------------------------------------------------------
+    // Tier 1: Full UI Navigation Tests
     // ---------------------------------------------------------------
 
     @Test
@@ -98,10 +144,6 @@ class E2EFlowTest {
         serverSteps.assertServerVisible()
         device.captureStep("01_home_with_server")
     }
-
-    // ---------------------------------------------------------------
-    // S2: Add Project
-    // ---------------------------------------------------------------
 
     @Test
     fun s2_addProject() {
@@ -112,10 +154,6 @@ class E2EFlowTest {
         projectSteps.addProjectByPath()
         device.captureStep("02_project_list")
     }
-
-    // ---------------------------------------------------------------
-    // S3: Session List
-    // ---------------------------------------------------------------
 
     @Test
     fun s3_sessionList() {
@@ -129,34 +167,18 @@ class E2EFlowTest {
     }
 
     // ---------------------------------------------------------------
-    // S4: Create New Session
+    // Tier 2: Chat Tests (fast setup via deeplink + HTTP)
     // ---------------------------------------------------------------
 
     @Test
     fun s4_createNewSession() {
-        serverSteps.addServer()
-        serverSteps.openServer()
-        projectSteps.addProjectByPath()
-        projectSteps.openFirstProject()
-
-        sessionSteps.createNewSession()
-        sessionSteps.assertChatLoaded()
+        setupForChatTest()
         device.captureStep("04_chat_new_session")
     }
 
-    // ---------------------------------------------------------------
-    // S5: Send Message & Verify AI Response
-    // ---------------------------------------------------------------
-
     @Test
     fun s5_sendMessage() {
-        serverSteps.addServer()
-        serverSteps.openServer()
-        projectSteps.addProjectByPath()
-        projectSteps.openFirstProject()
-
-        sessionSteps.createNewSession()
-        sessionSteps.assertChatLoaded()
+        setupForChatTest()
 
         val message = "reply with only: pong"
         chatSteps.sendMessage(message)
@@ -164,55 +186,25 @@ class E2EFlowTest {
         device.captureStep("05_chat_with_response")
     }
 
-    // ---------------------------------------------------------------
-    // S6a: Built-in Slash Command
-    // ---------------------------------------------------------------
-
     @Test
     fun s6a_builtinCommand() {
-        serverSteps.addServer()
-        serverSteps.openServer()
-        projectSteps.addProjectByPath()
-        projectSteps.openFirstProject()
-
-        sessionSteps.createNewSession()
-        sessionSteps.assertChatLoaded()
+        setupForChatTest()
 
         commandSteps.testBuiltinCommand()
         device.captureStep("06a_builtin_command")
     }
 
-    // ---------------------------------------------------------------
-    // S6b: Shell Command
-    // ---------------------------------------------------------------
-
     @Test
     fun s6b_shellCommand() {
-        serverSteps.addServer()
-        serverSteps.openServer()
-        projectSteps.addProjectByPath()
-        projectSteps.openFirstProject()
-
-        sessionSteps.createNewSession()
-        sessionSteps.assertChatLoaded()
+        setupForChatTest()
 
         commandSteps.testShellCommand()
         device.captureStep("06b_shell_command")
     }
 
-    // ---------------------------------------------------------------
-    // S6c: Server Command (may gracefully skip)
-    // ---------------------------------------------------------------
-
     @Test
     fun s6c_serverCommand() {
-        serverSteps.addServer()
-        serverSteps.openServer()
-        projectSteps.addProjectByPath()
-        projectSteps.openFirstProject()
-
-        sessionSteps.createNewSession()
-        sessionSteps.assertChatLoaded()
+        setupForChatTest()
 
         commandSteps.testServerCommand()
         device.captureStep("06c_server_command")
