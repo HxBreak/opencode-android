@@ -1,5 +1,9 @@
 package me.xiaok.opencode.ui.screens.files
 
+import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,7 +19,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
-import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -26,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.xiaok.opencode.domain.model.FileContent
@@ -44,9 +48,34 @@ fun FileBrowserRoute(
     viewModel: FileBrowserViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // SAF "Save As" launcher
+    val saveAsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("*/*")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.saveToUri(uri, context.contentResolver)
+        }
+    }
+
+    // Observe download result and show snackbar
+    uiState.downloadResult?.let { result ->
+        LaunchedEffect(result) {
+            when (result) {
+                is DownloadResult.Success ->
+                    snackbarHostState.showSnackbar("Saved: ${result.fileName}")
+                is DownloadResult.Error ->
+                    snackbarHostState.showSnackbar("Failed: ${result.message}")
+            }
+            viewModel.clearDownloadResult()
+        }
+    }
 
     FileBrowserScreen(
         uiState = uiState,
+        snackbarHostState = snackbarHostState,
         onNavigateBack = onNavigateBack,
         onNavigateUp = { viewModel.navigateUp() },
         onDirectoryClick = { viewModel.loadDirectory(it) },
@@ -59,6 +88,13 @@ fun FileBrowserRoute(
         onBackFromViewer = {
             viewModel.loadDirectory(uiState.currentPath)
         },
+        onSaveToDownloads = {
+            viewModel.saveToDownloads(context.contentResolver)
+        },
+        onSaveAs = {
+            val fileName = uiState.viewingFilePath?.substringAfterLast("/") ?: "file"
+            saveAsLauncher.launch(fileName)
+        },
     )
 }
 
@@ -70,6 +106,7 @@ fun FileBrowserRoute(
 @Composable
 fun FileBrowserScreen(
     uiState: FileBrowserUiState,
+    snackbarHostState: SnackbarHostState,
     onNavigateBack: () -> Unit,
     onNavigateUp: () -> Unit,
     onDirectoryClick: (path: String) -> Unit,
@@ -80,9 +117,10 @@ fun FileBrowserScreen(
     onClearSearch: () -> Unit,
     onClearError: () -> Unit,
     onBackFromViewer: () -> Unit,
+    onSaveToDownloads: () -> Unit = {},
+    onSaveAs: () -> Unit = {},
 ) {
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
-    val snackbarHostState = remember { SnackbarHostState() }
     var isSearchMode by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -120,6 +158,7 @@ fun FileBrowserScreen(
                 FileViewerTopBar(
                     filePath = uiState.viewingFilePath.orEmpty(),
                     onBack = onBackFromViewer,
+                    onDownload = onSaveToDownloads,
                     scrollBehavior = scrollBehavior,
                 )
             } else if (isSearchMode) {
@@ -158,6 +197,8 @@ fun FileBrowserScreen(
                     FileContentViewer(
                         fileContent = uiState.fileContent ?: FileContent(),
                         filePath = uiState.viewingFilePath,
+                        onSaveToDownloads = onSaveToDownloads,
+                        onSaveAs = onSaveAs,
                     )
                 }
                 isSearchMode -> {

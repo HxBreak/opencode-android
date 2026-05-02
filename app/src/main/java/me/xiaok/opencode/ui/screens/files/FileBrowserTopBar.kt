@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -128,6 +129,7 @@ private fun BreadcrumbPath(
 internal fun FileViewerTopBar(
     filePath: String,
     onBack: () -> Unit,
+    onDownload: () -> Unit = {},
     scrollBehavior: TopAppBarScrollBehavior,
 ) {
     TopAppBar(
@@ -147,6 +149,14 @@ internal fun FileViewerTopBar(
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
+                )
+            }
+        },
+        actions = {
+            IconButton(onClick = onDownload) {
+                Icon(
+                    imageVector = Icons.Default.Save,
+                    contentDescription = "Download",
                 )
             }
         },

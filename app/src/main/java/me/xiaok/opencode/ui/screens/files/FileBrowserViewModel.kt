@@ -17,6 +17,12 @@ import me.xiaok.opencode.domain.model.FileStatus
 import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
 
+/** Result of a download/save operation. */
+sealed class DownloadResult {
+    data class Success(val fileName: String) : DownloadResult()
+    data class Error(val message: String) : DownloadResult()
+}
+
 data class FileBrowserUiState(
     val fileTree: List<FileNode> = emptyList(),
     val currentPath: String = ".",
@@ -28,6 +34,8 @@ data class FileBrowserUiState(
     val isSearching: Boolean = false,
     val isLoading: Boolean = false,
     val error: String? = null,
+    val isDownloading: Boolean = false,
+    val downloadResult: DownloadResult? = null,
 )
 
 @HiltViewModel
@@ -68,6 +76,8 @@ class FileBrowserViewModel @Inject constructor(
     private val _isSearching = MutableStateFlow(false)
     private val _isLoading = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
+    private val _isDownloading = MutableStateFlow(false)
+    private val _downloadResult = MutableStateFlow<DownloadResult?>(null)
 
     val uiState: StateFlow<FileBrowserUiState> = combine(
         _fileTree,
@@ -80,6 +90,8 @@ class FileBrowserViewModel @Inject constructor(
         _isSearching,
         _isLoading,
         _error,
+        _isDownloading,
+        _downloadResult,
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         FileBrowserUiState(
@@ -93,6 +105,8 @@ class FileBrowserViewModel @Inject constructor(
             isSearching = values[7] as Boolean,
             isLoading = values[8] as Boolean,
             error = values[9] as String?,
+            isDownloading = values[10] as Boolean,
+            downloadResult = values[11] as DownloadResult?,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FileBrowserUiState())
 
@@ -256,5 +270,78 @@ class FileBrowserViewModel @Inject constructor(
 
     fun clearError() {
         _error.value = null
+    }
+
+    fun saveToDownloads(contentResolver: android.content.ContentResolver) {
+        val filePath = _viewingFilePath.value ?: return
+        val fileContent = _fileContent.value ?: return
+        viewModelScope.launch {
+            _isDownloading.value = true
+            _downloadResult.value = null
+            try {
+                val bytes = FileSaver.decodeBytes(fileContent)
+                val fileName = FileSaver.extractFileName(filePath)
+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    val contentValues = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
+                        put(android.provider.MediaStore.Downloads.MIME_TYPE,
+                            fileContent.mimeType ?: android.webkit.MimeTypeMap.getSingleton()
+                                .getMimeTypeFromExtension(fileName.substringAfterLast('.'))
+                                ?: "application/octet-stream")
+                        put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+                    }
+
+                    val uri = contentResolver.insert(
+                        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                        contentValues
+                    ) ?: throw java.io.IOException("Failed to create MediaStore entry")
+
+                    FileSaver.writeToUri(contentResolver, uri, bytes)
+
+                    contentValues.clear()
+                    contentValues.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+                    contentResolver.update(uri, contentValues, null, null)
+                } else {
+                    @Suppress("DEPRECATION")
+                    val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS
+                    )
+                    if (!downloadsDir.exists()) downloadsDir.mkdirs()
+                    val file = java.io.File(downloadsDir, fileName)
+                    file.writeBytes(bytes)
+                }
+
+                _downloadResult.value = DownloadResult.Success(fileName)
+            } catch (e: Exception) {
+                errorCollector.logError(e, "FileBrowser")
+                _downloadResult.value = DownloadResult.Error(e.message ?: "Download failed")
+            } finally {
+                _isDownloading.value = false
+            }
+        }
+    }
+
+    fun saveToUri(uri: android.net.Uri, contentResolver: android.content.ContentResolver) {
+        val fileContent = _fileContent.value ?: return
+        viewModelScope.launch {
+            _isDownloading.value = true
+            _downloadResult.value = null
+            try {
+                val bytes = FileSaver.decodeBytes(fileContent)
+                FileSaver.writeToUri(contentResolver, uri, bytes)
+                val fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+                _downloadResult.value = DownloadResult.Success(fileName)
+            } catch (e: Exception) {
+                errorCollector.logError(e, "FileBrowser")
+                _downloadResult.value = DownloadResult.Error(e.message ?: "Save failed")
+            } finally {
+                _isDownloading.value = false
+            }
+        }
+    }
+
+    fun clearDownloadResult() {
+        _downloadResult.value = null
     }
 }

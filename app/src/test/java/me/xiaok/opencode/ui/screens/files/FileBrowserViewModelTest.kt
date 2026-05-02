@@ -348,4 +348,108 @@ class FileBrowserViewModelTest {
 
         collectJob.cancel()
     }
+
+    @Test
+    fun `saveToDownloads success updates downloadResult`() = testScope.runTest {
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileContent(server, "src/App.kt", workspace = null, directory = null) } returns
+            FileContent(content = "fun main() {}")
+
+        val contentResolver = mockk<android.content.ContentResolver>(relaxed = true)
+        val uri = mockk<android.net.Uri>(relaxed = true)
+        val outputStream = java.io.ByteArrayOutputStream()
+
+        every { contentResolver.insert(any(), any()) } returns uri
+        every { contentResolver.openOutputStream(uri, "wt") } returns outputStream
+        every { contentResolver.update(uri, any(), null, null) } returns 1
+
+        val vm = createViewModel()
+        val collectJob = launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.loadFileContent("src/App.kt")
+        advanceUntilIdle()
+
+        vm.saveToDownloads(contentResolver)
+        advanceUntilIdle()
+
+        val result = vm.uiState.value.downloadResult
+        assertTrue(result is DownloadResult.Success)
+        assertEquals("App.kt", (result as DownloadResult.Success).fileName)
+        assertFalse(vm.uiState.value.isDownloading)
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `saveToDownloads when no file loaded does nothing`() = testScope.runTest {
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
+
+        val contentResolver = mockk<android.content.ContentResolver>(relaxed = true)
+
+        val vm = createViewModel()
+        val collectJob = launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.saveToDownloads(contentResolver)
+        advanceUntilIdle()
+
+        assertNull(vm.uiState.value.downloadResult)
+        coVerify(exactly = 0) { contentResolver.insert(any(), any()) }
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `saveToUri success updates downloadResult`() = testScope.runTest {
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileContent(server, "src/App.kt", workspace = null, directory = null) } returns
+            FileContent(content = "fun main() {}")
+
+        val contentResolver = mockk<android.content.ContentResolver>(relaxed = true)
+        val uri = mockk<android.net.Uri>(relaxed = true)
+        every { uri.lastPathSegment } returns "external/storage/App.kt"
+        val outputStream = java.io.ByteArrayOutputStream()
+        every { contentResolver.openOutputStream(uri, "wt") } returns outputStream
+
+        val vm = createViewModel()
+        val collectJob = launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.loadFileContent("src/App.kt")
+        advanceUntilIdle()
+
+        vm.saveToUri(uri, contentResolver)
+        advanceUntilIdle()
+
+        val result = vm.uiState.value.downloadResult
+        assertTrue(result is DownloadResult.Success)
+        assertFalse(vm.uiState.value.isDownloading)
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `clearDownloadResult resets download state`() = testScope.runTest {
+        coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
+        coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
+
+        val vm = createViewModel()
+        val collectJob = launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.clearDownloadResult()
+        advanceUntilIdle()
+
+        assertNull(vm.uiState.value.downloadResult)
+
+        collectJob.cancel()
+    }
 }

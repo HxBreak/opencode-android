@@ -3,6 +3,7 @@ package me.xiaok.opencode.ui.screens.files
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,9 +21,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,26 +56,83 @@ private const val MAX_FILE_SIZE_CHARS = 100_000
 private const val MAX_DISPLAY_LINES = 2000
 
 @Composable
-internal fun FileContentViewer(fileContent: FileContent, filePath: String? = null) {
-    when {
-        fileContent.isImage && fileContent.encoding == "base64" -> {
-            BinaryImagePreview(
-                base64Data = fileContent.content,
-                mimeType = fileContent.mimeType ?: "image/png",
-            )
+internal fun FileContentViewer(
+    fileContent: FileContent,
+    filePath: String? = null,
+    onSaveToDownloads: () -> Unit = {},
+    onSaveAs: () -> Unit = {},
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.weight(1f)) {
+            when {
+                fileContent.isImage && fileContent.encoding == "base64" -> {
+                    BinaryImagePreview(
+                        base64Data = fileContent.content,
+                        mimeType = fileContent.mimeType ?: "image/png",
+                    )
+                }
+                fileContent.isBinary -> {
+                    BinaryFilePlaceholder(
+                        mimeType = fileContent.mimeType,
+                        filePath = filePath,
+                    )
+                }
+                else -> {
+                    TextFileContentViewer(
+                        content = fileContent.content,
+                        filePath = filePath,
+                        diff = fileContent.diff,
+                    )
+                }
+            }
         }
-        fileContent.isBinary -> {
-            BinaryFilePlaceholder(
-                mimeType = fileContent.mimeType,
-                filePath = filePath,
-            )
-        }
-        else -> {
-            TextFileContentViewer(
-                content = fileContent.content,
-                filePath = filePath,
-                diff = fileContent.diff,
-            )
+        FileViewerBottomBar(
+            onSaveToDownloads = onSaveToDownloads,
+            onSaveAs = onSaveAs,
+        )
+    }
+}
+
+@Composable
+private fun FileViewerBottomBar(
+    onSaveToDownloads: () -> Unit,
+    onSaveAs: () -> Unit,
+) {
+    Surface(
+        tonalElevation = 3.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            OutlinedButton(
+                onClick = onSaveToDownloads,
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Save,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Downloads")
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            OutlinedButton(
+                onClick = onSaveAs,
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Save,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Save As")
+            }
         }
     }
 }
