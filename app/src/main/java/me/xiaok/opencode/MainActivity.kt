@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
 
         if (handleAddServerDeeplink(intent)) return
+        ensureServerFromUri(intent)
 
         navController?.handleDeepLink(intent)
         handleShareIntent(intent)
@@ -110,6 +111,37 @@ class MainActivity : ComponentActivity() {
             serverRepository.connect(serverId)
         }
         return true
+    }
+
+    /**
+     * Extract server credentials from URI query params (e.g. `opencode://session/...?serverName=X&serverUrl=Y`).
+     * If the server doesn't exist locally, add and connect it before navigation proceeds.
+     */
+    private fun ensureServerFromUri(intent: Intent) {
+        if (intent.action != Intent.ACTION_VIEW) return
+        val data = intent.data ?: return
+        if (data.scheme != "opencode") return
+
+        val serverId = data.pathSegments.firstOrNull() ?: return
+        val serverName = data.getQueryParameter("serverName") ?: return
+        val serverUrl = data.getQueryParameter("serverUrl") ?: return
+
+        if (serverRepository.getServer(serverId) != null) return
+
+        val server = ServerConnection(
+            id = serverId,
+            name = serverName,
+            baseUrl = serverUrl,
+            username = data.getQueryParameter("username") ?: "",
+            password = data.getQueryParameter("password") ?: "",
+            autoConnect = false,
+        )
+
+        Log.d(TAG, "ensureServerFromUri: adding server id=$serverId name=$serverName")
+        lifecycleScope.launch {
+            serverRepository.addServer(server)
+            serverRepository.connect(serverId)
+        }
     }
 
     private fun handleShareIntent(intent: Intent?) {

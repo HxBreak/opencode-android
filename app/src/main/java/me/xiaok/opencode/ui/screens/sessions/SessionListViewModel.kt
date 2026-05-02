@@ -19,6 +19,7 @@ import me.xiaok.opencode.domain.model.PtyInfo
 import me.xiaok.opencode.domain.model.Session
 import me.xiaok.opencode.domain.model.SessionStatus
 import me.xiaok.opencode.domain.model.Message
+import me.xiaok.opencode.domain.model.ServerConnection
 import me.xiaok.opencode.utils.ErrorCollector
 import javax.inject.Inject
 
@@ -45,6 +46,7 @@ data class SessionListUiState(
     val ptyList: List<PtyInfo> = emptyList(),
     /** Token usage per session (parent + children). Only includes sessions whose messages are loaded. */
     val sessionTokens: Map<String, Long> = emptyMap(),
+    val serverConnection: ServerConnection? = null,
 )
 
 @HiltViewModel
@@ -185,6 +187,7 @@ class SessionListViewModel @Inject constructor(
                     ?.count { (_, pty) -> pty.status != "exited" } ?: 0,
                 ptyList = allPtys[serverId]?.values?.toList() ?: emptyList(),
                 sessionTokens = sessionTokens,
+                serverConnection = serverRepository.getServer(serverId),
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionListUiState())

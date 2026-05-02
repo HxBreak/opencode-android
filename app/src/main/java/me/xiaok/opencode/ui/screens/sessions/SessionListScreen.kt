@@ -379,8 +379,22 @@ fun SessionListScreen(
                                         onArchive = { onArchiveSession(session.id) },
                                         onUnarchive = { onUnarchiveSession(session.id) },
                                         onCopyUrl = {
-                                            val url = "opencode://session/$serverId/${session.id}"
-                                            clipboardManager.setText(AnnotatedString(url))
+                                            val server = uiState.serverConnection
+                                            val base = "opencode://session/$serverId/${session.id}"
+                                            val uri = if (server != null) {
+                                                val params = buildMap {
+                                                    put("serverName", server.name)
+                                                    put("serverUrl", server.baseUrl)
+                                                    if (server.username.isNotEmpty()) put("username", server.username)
+                                                    if (server.password.isNotEmpty()) put("password", server.password)
+                                                }.entries.joinToString("&", prefix = "?") { (k, v) ->
+                                                    "$k=${java.net.URLEncoder.encode(v, "UTF-8")}"
+                                                }
+                                                base + params
+                                            } else {
+                                                base
+                                            }
+                                            clipboardManager.setText(AnnotatedString(uri))
                                             Toast.makeText(context, "Session URL copied", Toast.LENGTH_SHORT).show()
                                         },
                                     )
