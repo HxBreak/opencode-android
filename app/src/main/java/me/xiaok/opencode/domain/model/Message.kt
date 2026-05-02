@@ -15,6 +15,13 @@ data class ModelRef(
 )
 
 @Serializable
+data class MessageModel(
+    val providerID: String = "",
+    val modelID: String = "",
+    val variant: String? = null,
+)
+
+@Serializable
 data class TokenUsage(
     val total: Long = 0L,
     val input: Long = 0L,
@@ -150,6 +157,7 @@ data class MessageInfo(
     // User-specific fields
     @Serializable(with = UserSummarySerializer::class)
     val summary: UserSummary? = null,
+    val model: MessageModel? = null,
     // Assistant-specific fields
     val parentID: String? = null,
     val modelID: String? = null,

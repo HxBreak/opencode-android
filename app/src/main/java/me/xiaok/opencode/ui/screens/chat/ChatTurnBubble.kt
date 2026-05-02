@@ -97,6 +97,21 @@ internal fun TurnBubble(
                     textAlign = TextAlign.End,
                 )
             }
+            val userModel = turn.userMessage.info.model
+            if (userModel != null && userModel.modelID.isNotBlank()) {
+                Text(
+                    text = buildString {
+                        append(userModel.modelID)
+                        if (userModel.providerID.isNotBlank()) append(" · ${userModel.providerID}")
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(end = 4.dp),
+                    textAlign = TextAlign.End,
+                )
+            }
         }
 
         // 2. Error indicator from last assistant message
@@ -116,23 +131,6 @@ internal fun TurnBubble(
                 )
             }
             Spacer(modifier = Modifier.height(4.dp))
-        }
-
-        val modelId = lastAssistant?.info?.modelID
-        val providerId = lastAssistant?.info?.providerID
-        if (!modelId.isNullOrBlank()) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = buildString {
-                        append(modelId)
-                        if (!providerId.isNullOrBlank()) append(" · $providerId")
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                )
-            }
         }
 
         // 3. Assistant parts (cross-message grouped)
