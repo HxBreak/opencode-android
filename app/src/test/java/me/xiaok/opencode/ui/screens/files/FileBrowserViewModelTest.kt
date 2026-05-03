@@ -350,7 +350,7 @@ class FileBrowserViewModelTest {
     }
 
     @Test
-    fun `saveToDownloads success updates downloadResult`() = testScope.runTest {
+    fun `downloadToDownloads success updates downloadResult`() = testScope.runTest {
         coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
         coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
         coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
@@ -369,10 +369,7 @@ class FileBrowserViewModelTest {
         val collectJob = launch { vm.uiState.collect {} }
         advanceUntilIdle()
 
-        vm.loadFileContent("src/App.kt")
-        advanceUntilIdle()
-
-        vm.saveToDownloads(contentResolver)
+        vm.downloadToDownloads("src/App.kt", contentResolver)
         advanceUntilIdle()
 
         val result = vm.uiState.value.downloadResult
@@ -384,10 +381,12 @@ class FileBrowserViewModelTest {
     }
 
     @Test
-    fun `saveToDownloads when no file loaded does nothing`() = testScope.runTest {
+    fun `downloadToDownloads failure sets downloadResult error`() = testScope.runTest {
         coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
         coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
         coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
+        coEvery { api.getFileContent(server, "missing.txt", workspace = null, directory = null) } throws
+            RuntimeException("not found")
 
         val contentResolver = mockk<android.content.ContentResolver>(relaxed = true)
 
@@ -395,17 +394,18 @@ class FileBrowserViewModelTest {
         val collectJob = launch { vm.uiState.collect {} }
         advanceUntilIdle()
 
-        vm.saveToDownloads(contentResolver)
+        vm.downloadToDownloads("missing.txt", contentResolver)
         advanceUntilIdle()
 
-        assertNull(vm.uiState.value.downloadResult)
-        coVerify(exactly = 0) { contentResolver.insert(any(), any()) }
+        val result = vm.uiState.value.downloadResult
+        assertTrue(result is DownloadResult.Error)
+        assertFalse(vm.uiState.value.isDownloading)
 
         collectJob.cancel()
     }
 
     @Test
-    fun `saveToUri success updates downloadResult`() = testScope.runTest {
+    fun `startSaveAs and savePendingToUri success updates downloadResult`() = testScope.runTest {
         coEvery { api.getCurrentProject(server) } returns Project(id = "global", worktree = "/")
         coEvery { api.listFiles(server, ".", workspace = null, directory = null) } returns emptyList()
         coEvery { api.getFileStatuses(server, workspace = null, directory = null) } returns emptyList()
@@ -414,7 +414,6 @@ class FileBrowserViewModelTest {
 
         val contentResolver = mockk<android.content.ContentResolver>(relaxed = true)
         val uri = mockk<android.net.Uri>(relaxed = true)
-        every { uri.lastPathSegment } returns "external/storage/App.kt"
         val outputStream = java.io.ByteArrayOutputStream()
         every { contentResolver.openOutputStream(uri, "wt") } returns outputStream
 
@@ -422,15 +421,19 @@ class FileBrowserViewModelTest {
         val collectJob = launch { vm.uiState.collect {} }
         advanceUntilIdle()
 
-        vm.loadFileContent("src/App.kt")
+        vm.startSaveAs("src/App.kt", contentResolver)
         advanceUntilIdle()
 
-        vm.saveToUri(uri, contentResolver)
+        assertEquals("src/App.kt", vm.pendingSaveAsPath.value)
+
+        vm.savePendingToUri(uri, contentResolver)
         advanceUntilIdle()
 
         val result = vm.uiState.value.downloadResult
         assertTrue(result is DownloadResult.Success)
+        assertEquals("App.kt", (result as DownloadResult.Success).fileName)
         assertFalse(vm.uiState.value.isDownloading)
+        assertNull(vm.pendingSaveAsPath.value)
 
         collectJob.cancel()
     }

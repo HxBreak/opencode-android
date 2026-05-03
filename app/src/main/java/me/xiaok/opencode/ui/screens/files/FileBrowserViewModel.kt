@@ -272,15 +272,23 @@ class FileBrowserViewModel @Inject constructor(
         _error.value = null
     }
 
-    fun saveToDownloads(contentResolver: android.content.ContentResolver) {
-        val filePath = _viewingFilePath.value ?: return
-        val fileContent = _fileContent.value ?: return
+    // --- Download from directory listing (long-press context menu) ---
+
+    private val _pendingSaveAsPath = MutableStateFlow<String?>(null)
+    val pendingSaveAsPath: StateFlow<String?> = _pendingSaveAsPath
+
+    private var _pendingSaveAsContent: FileContent? = null
+
+    /** Download a file directly to the system Downloads folder. */
+    fun downloadToDownloads(path: String, contentResolver: android.content.ContentResolver) {
+        val conn = getConnection() ?: return
         viewModelScope.launch {
             _isDownloading.value = true
             _downloadResult.value = null
             try {
+                val fileContent = api.getFileContent(conn, path, workspace = workspaceId, directory = directory)
                 val bytes = FileSaver.decodeBytes(fileContent)
-                val fileName = FileSaver.extractFileName(filePath)
+                val fileName = FileSaver.extractFileName(path)
 
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                     val contentValues = android.content.ContentValues().apply {
@@ -308,8 +316,7 @@ class FileBrowserViewModel @Inject constructor(
                         android.os.Environment.DIRECTORY_DOWNLOADS
                     )
                     if (!downloadsDir.exists()) downloadsDir.mkdirs()
-                    val file = java.io.File(downloadsDir, fileName)
-                    file.writeBytes(bytes)
+                    java.io.File(downloadsDir, fileName).writeBytes(bytes)
                 }
 
                 _downloadResult.value = DownloadResult.Success(fileName)
@@ -322,23 +329,49 @@ class FileBrowserViewModel @Inject constructor(
         }
     }
 
-    fun saveToUri(uri: android.net.Uri, contentResolver: android.content.ContentResolver) {
-        val fileContent = _fileContent.value ?: return
+    /** First step of "Save As": fetch file content then trigger SAF picker. */
+    fun startSaveAs(path: String, contentResolver: android.content.ContentResolver) {
+        val conn = getConnection() ?: return
         viewModelScope.launch {
             _isDownloading.value = true
             _downloadResult.value = null
             try {
+                val fileContent = api.getFileContent(conn, path, workspace = workspaceId, directory = directory)
+                _pendingSaveAsContent = fileContent
+                _pendingSaveAsPath.value = path
+            } catch (e: Exception) {
+                errorCollector.logError(e, "FileBrowser")
+                _downloadResult.value = DownloadResult.Error(e.message ?: "Failed to load file")
+                _isDownloading.value = false
+            }
+        }
+    }
+
+    /** Second step of "Save As": write pending content to the user-chosen URI. */
+    fun savePendingToUri(uri: android.net.Uri, contentResolver: android.content.ContentResolver) {
+        val fileContent = _pendingSaveAsContent ?: return
+        viewModelScope.launch {
+            try {
                 val bytes = FileSaver.decodeBytes(fileContent)
                 FileSaver.writeToUri(contentResolver, uri, bytes)
-                val fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+                val fileName = FileSaver.extractFileName(_pendingSaveAsPath.value ?: "")
                 _downloadResult.value = DownloadResult.Success(fileName)
             } catch (e: Exception) {
                 errorCollector.logError(e, "FileBrowser")
                 _downloadResult.value = DownloadResult.Error(e.message ?: "Save failed")
             } finally {
                 _isDownloading.value = false
+                _pendingSaveAsPath.value = null
+                _pendingSaveAsContent = null
             }
         }
+    }
+
+    /** Cancel a pending Save As operation. */
+    fun clearPendingSaveAs() {
+        _pendingSaveAsPath.value = null
+        _pendingSaveAsContent = null
+        _isDownloading.value = false
     }
 
     fun clearDownloadResult() {

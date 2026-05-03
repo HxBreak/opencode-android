@@ -1,7 +1,10 @@
 package me.xiaok.opencode.ui.screens.files
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,18 +24,27 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import me.xiaok.opencode.domain.model.FileNode
 import me.xiaok.opencode.domain.model.FileStatus
@@ -47,6 +59,8 @@ internal fun DirectoryBrowserView(
     onNavigateUp: () -> Unit,
     onDirectoryClick: (path: String) -> Unit,
     onFileClick: (path: String) -> Unit,
+    onSaveToDownloads: (path: String) -> Unit = {},
+    onSaveAs: (path: String) -> Unit = {},
 ) {
     val statusMap = remember(uiState.fileStatuses) {
         uiState.fileStatuses.associateBy { it.path }
@@ -81,6 +95,8 @@ internal fun DirectoryBrowserView(
                         onFileClick(node.path)
                     }
                 },
+                onSaveToDownloads = { onSaveToDownloads(node.path) },
+                onSaveAs = { onSaveAs(node.path) },
             )
             HorizontalDivider(
                 thickness = 0.5.dp,
@@ -140,49 +156,95 @@ private fun NavigateUpItem(onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FileNodeItem(
     node: FileNode,
     fileStatus: FileStatus?,
     onClick: () -> Unit,
+    onSaveToDownloads: () -> Unit = {},
+    onSaveAs: () -> Unit = {},
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        FileIcon(
-            fileName = node.name,
-            type = node.type,
-            modifier = Modifier.size(24.dp),
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = node.name,
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    fontWeight = if (node.type == "directory") FontWeight.Medium else FontWeight.Normal,
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+    var showMenu by remember { mutableStateOf(false) }
+    var menuOffset by remember { mutableStateOf(Offset.Zero) }
+
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = if (node.type == "file") {
+                        { showMenu = true }
+                    } else null,
+                )
+                .then(
+                    if (node.type == "file") {
+                        Modifier.pointerInput(Unit) {
+                            detectTapGestures(
+                                onLongPress = { offset ->
+                                    menuOffset = offset
+                                    showMenu = true
+                                }
+                            )
+                        }
+                    } else Modifier
+                )
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FileIcon(
+                fileName = node.name,
+                type = node.type,
+                modifier = Modifier.size(24.dp),
             )
-            if (node.type == "file" && node.path != node.name) {
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = node.path,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = FontFamily.Monospace,
+                    text = node.name,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontWeight = if (node.type == "directory") FontWeight.Medium else FontWeight.Normal,
                     ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (node.type == "file" && node.path != node.name) {
+                    Text(
+                        text = node.path,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            // Git status badge
+            if (fileStatus != null) {
+                GitStatusBadge(status = fileStatus.status, added = fileStatus.added, removed = fileStatus.removed)
             }
         }
-        // Git status badge
-        if (fileStatus != null) {
-            GitStatusBadge(status = fileStatus.status, added = fileStatus.added, removed = fileStatus.removed)
+
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false },
+            offset = DpOffset(menuOffset.x.dp, menuOffset.y.dp),
+        ) {
+            DropdownMenuItem(
+                text = { Text("保存到 Downloads") },
+                onClick = {
+                    showMenu = false
+                    onSaveToDownloads()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("另存为...") },
+                onClick = {
+                    showMenu = false
+                    onSaveAs()
+                },
+            )
         }
     }
 }

@@ -48,15 +48,26 @@ fun FileBrowserRoute(
     viewModel: FileBrowserViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val pendingSaveAsPath by viewModel.pendingSaveAsPath.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // SAF "Save As" launcher
+    // SAF "Save As" launcher — triggered when pendingSaveAsPath is set
     val saveAsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("*/*")
     ) { uri: Uri? ->
         if (uri != null) {
-            viewModel.saveToUri(uri, context.contentResolver)
+            viewModel.savePendingToUri(uri, context.contentResolver)
+        } else {
+            viewModel.clearPendingSaveAs()
+        }
+    }
+
+    // Observe pending Save As path and launch SAF picker
+    LaunchedEffect(pendingSaveAsPath) {
+        if (pendingSaveAsPath != null) {
+            val fileName = pendingSaveAsPath?.substringAfterLast("/") ?: "file"
+            saveAsLauncher.launch(fileName)
         }
     }
 
@@ -88,12 +99,11 @@ fun FileBrowserRoute(
         onBackFromViewer = {
             viewModel.loadDirectory(uiState.currentPath)
         },
-        onSaveToDownloads = {
-            viewModel.saveToDownloads(context.contentResolver)
+        onDownloadToDownloads = { path ->
+            viewModel.downloadToDownloads(path, context.contentResolver)
         },
-        onSaveAs = {
-            val fileName = uiState.viewingFilePath?.substringAfterLast("/") ?: "file"
-            saveAsLauncher.launch(fileName)
+        onStartSaveAs = { path ->
+            viewModel.startSaveAs(path, context.contentResolver)
         },
     )
 }
@@ -117,8 +127,8 @@ fun FileBrowserScreen(
     onClearSearch: () -> Unit,
     onClearError: () -> Unit,
     onBackFromViewer: () -> Unit,
-    onSaveToDownloads: () -> Unit = {},
-    onSaveAs: () -> Unit = {},
+    onDownloadToDownloads: (path: String) -> Unit = {},
+    onStartSaveAs: (path: String) -> Unit = {},
 ) {
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     var isSearchMode by remember { mutableStateOf(false) }
@@ -145,9 +155,10 @@ fun FileBrowserScreen(
         }
     }
 
-    // Intercept system back button in directory browsing mode
-    if (!isViewingFile && !isSearchMode) {
-        BackHandler(onBack = handleBack)
+    // Intercept system back button
+    when {
+        isViewingFile -> BackHandler(onBack = onBackFromViewer)
+        !isSearchMode -> BackHandler(onBack = handleBack)
     }
 
     Scaffold(
@@ -158,7 +169,7 @@ fun FileBrowserScreen(
                 FileViewerTopBar(
                     filePath = uiState.viewingFilePath.orEmpty(),
                     onBack = onBackFromViewer,
-                    onDownload = onSaveToDownloads,
+                    onNavigateUp = onNavigateUp,
                     scrollBehavior = scrollBehavior,
                 )
             } else if (isSearchMode) {
@@ -197,8 +208,6 @@ fun FileBrowserScreen(
                     FileContentViewer(
                         fileContent = uiState.fileContent ?: FileContent(),
                         filePath = uiState.viewingFilePath,
-                        onSaveToDownloads = onSaveToDownloads,
-                        onSaveAs = onSaveAs,
                     )
                 }
                 isSearchMode -> {
@@ -218,6 +227,8 @@ fun FileBrowserScreen(
                         onNavigateUp = onNavigateUp,
                         onDirectoryClick = onDirectoryClick,
                         onFileClick = onFileClick,
+                        onSaveToDownloads = onDownloadToDownloads,
+                        onSaveAs = onStartSaveAs,
                     )
                 }
             }
