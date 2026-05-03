@@ -1,6 +1,8 @@
 package me.xiaok.opencode.ui.screens.chat
 
+import androidx.compose.runtime.Immutable
 import me.xiaok.opencode.domain.model.AgentConfig
+import me.xiaok.opencode.domain.model.BuiltInCommand
 import me.xiaok.opencode.domain.model.CommandInfo
 import me.xiaok.opencode.domain.model.FileDiff
 import me.xiaok.opencode.domain.model.Message
@@ -104,3 +106,48 @@ sealed class ChatUiEvent {
     data class ShowSnackbar(val message: String) : ChatUiEvent()
     data class ShowShareDialog(val url: String) : ChatUiEvent()
 }
+
+@Immutable
+data class ChatCallbacks(
+    // Message operations
+    val onSendMessage: (String) -> Unit = {},
+    val onLoadOlderMessages: () -> Unit = {},
+    val onAbort: () -> Unit = {},
+    val onAutoScrollToggled: () -> Unit = {},
+    val onCopyMessage: (String) -> Unit = {},
+    val onDeleteMessage: (String) -> Unit = {},
+
+    // Draft & input
+    val onSaveDraft: (String) -> Unit = {},
+    val onReconcileMentions: (String) -> Unit = {},
+    val onAttachImage: () -> Unit = {},
+    val onRemoveImage: (Int) -> Unit = {},
+    val onSearchFiles: suspend (String) -> List<String> = { emptyList() },
+    val onMentionSelect: (MentionItem, Int, Int) -> Unit = { _, _, _ -> },
+
+    // Selection
+    val onAgentSelected: (String?) -> Unit = {},
+    val onModelSelected: (ModelRef?) -> Unit = {},
+    val onVariantSelected: (String?) -> Unit = {},
+
+    // Permissions & questions
+    val onReplyPermission: (String, String) -> Unit = { _, _ -> },
+    val onReplyQuestion: (QuestionRequest, List<List<String>>) -> Unit = { _, _ -> },
+    val onRejectQuestion: (QuestionRequest) -> Unit = {},
+
+    // Session operations
+    val onForkSession: (String) -> Unit = {},
+    val onRevertSession: (String) -> Unit = {},
+    val onUnrevertSession: () -> Unit = {},
+    val onRenameSession: (String) -> Unit = {},
+    val onDeleteSession: () -> Unit = {},
+    val onExportSession: () -> Unit = {},
+    val onBuiltInCommand: (BuiltInCommand) -> Unit = {},
+
+    // Navigation
+    val onNavigateBack: () -> Unit = {},
+    val onNavigateToSession: (String) -> Unit = {},
+    val onNavigateToToolDetail: (String) -> Unit = {},
+    val onNavigateToSessionDiff: () -> Unit = {},
+    val onNavigateToFullScreenEditor: () -> Unit = {},
+)

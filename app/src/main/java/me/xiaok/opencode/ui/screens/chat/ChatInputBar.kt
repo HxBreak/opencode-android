@@ -55,10 +55,8 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import me.xiaok.opencode.domain.model.BuiltInCommand
 import me.xiaok.opencode.domain.model.BuiltInCommands
 import me.xiaok.opencode.domain.model.MentionItem
-import me.xiaok.opencode.domain.model.ModelRef
 import me.xiaok.opencode.domain.model.SessionStatus
 
 @Composable
@@ -72,14 +70,7 @@ fun ChatInputBar(
     stats: ChatStatsState,
     selection: ChatSelectionState,
     attachedImages: List<AttachedImage>,
-    onAttachImage: () -> Unit = {},
-    onRemoveImage: (Int) -> Unit = {},
-    onAgentSelected: (String?) -> Unit = {},
-    onModelSelected: (ModelRef?) -> Unit = {},
-    onVariantSelected: (String?) -> Unit = {},
-    onBuiltInCommand: (BuiltInCommand) -> Unit = {},
-    onSearchFiles: suspend (String) -> List<String> = { emptyList() },
-    onMentionSelect: (MentionItem, Int, Int) -> Unit = { _, _, _ -> },
+    callbacks: ChatCallbacks,
     mentionDisplayTexts: Set<String>,
     onExpand: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -127,7 +118,7 @@ fun ChatInputBar(
 
     LaunchedEffect(mentionQuery, showMentionPopup) {
         if (showMentionPopup) {
-            fileResults = onSearchFiles(mentionQuery)
+            fileResults = callbacks.onSearchFiles(mentionQuery)
         } else {
             fileResults = emptyList()
         }
@@ -166,10 +157,10 @@ fun ChatInputBar(
             SelectorRow(
                 agents = selection.agents,
                 selectedAgent = selection.selectedAgent,
-                onAgentSelected = onAgentSelected,
+                onAgentSelected = callbacks.onAgentSelected,
                 providers = selection.providers,
                 selectedModel = selection.selectedModel,
-                onModelSelected = onModelSelected,
+                onModelSelected = callbacks.onModelSelected,
                 variants = selection.selectedModel?.let { ref ->
                     selection.providers
                         .find { it.id == ref.providerID }
@@ -177,7 +168,7 @@ fun ChatInputBar(
                         ?.variantNames ?: emptyList()
                 } ?: emptyList(),
                 selectedVariant = selection.selectedVariant,
-                onVariantSelected = onVariantSelected,
+                onVariantSelected = callbacks.onVariantSelected,
             )
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -185,7 +176,7 @@ fun ChatInputBar(
             if (attachedImages.isNotEmpty()) {
                 ImagePreviewRow(
                     images = attachedImages,
-                    onRemove = onRemoveImage,
+                    onRemove = callbacks.onRemoveImage,
                 )
                 Spacer(modifier = Modifier.height(6.dp))
             }
@@ -211,7 +202,7 @@ fun ChatInputBar(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        onBuiltInCommand(cmd)
+                                        callbacks.onBuiltInCommand(cmd)
                                         onTextChange("")
                                     }
                                     .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -327,7 +318,7 @@ fun ChatInputBar(
                             )
                         }
                         onTextChange(newText)
-                        onMentionSelect(positioned, atIndex, newEnd - 1)
+                        callbacks.onMentionSelect(positioned, atIndex, newEnd - 1)
                         showMentionPopup = false
                     },
                     modifier = Modifier
@@ -359,7 +350,7 @@ fun ChatInputBar(
                             )
                         }
                     }
-                    IconButton(onClick = onAttachImage) {
+                    IconButton(onClick = callbacks.onAttachImage) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Attach image",

@@ -42,12 +42,9 @@ import java.util.Locale
 @Composable
 internal fun TurnBubble(
     turn: ChatTurn,
-    onCopyMessage: (String) -> Unit = {},
+    callbacks: ChatCallbacks,
     onDeleteMessage: (String) -> Unit = {},
-    onForkSession: (String) -> Unit = {},
     onRevertSession: (String) -> Unit = {},
-    onNavigateToSession: (String) -> Unit = {},
-    onNavigateToToolDetail: (String) -> Unit = {},
     fontSize: String = "medium",
     isLastTurn: Boolean = false,
     isActiveSession: Boolean = false,
@@ -161,10 +158,10 @@ internal fun TurnBubble(
                     val part = partLookup[group.ref] ?: continue
                     PartRenderer(
                         part = part,
-                        onNavigateToSession = onNavigateToSession,
+                        onNavigateToSession = callbacks.onNavigateToSession,
                         childSessionIds = childSessionIds,
                         fontSize = fontSize,
-                        onNavigateToToolDetail = onNavigateToToolDetail,
+                            onNavigateToToolDetail = callbacks.onNavigateToToolDetail,
                         isLatestActiveReasoning = isLatestActiveReasoning,
                     )
                 }
@@ -175,7 +172,7 @@ internal fun TurnBubble(
                     if (tools.isNotEmpty()) {
                         ContextToolGroup(
                             tools = tools,
-                            onNavigateToToolDetail = onNavigateToToolDetail,
+                        onNavigateToToolDetail = callbacks.onNavigateToToolDetail,
                         )
                     }
                 }
@@ -214,7 +211,7 @@ internal fun TurnBubble(
                 },
                 onClick = {
                     showMenu = false
-                    onCopyMessage(extractTurnCopyText(turn))
+                    callbacks.onCopyMessage(extractTurnCopyText(turn))
                 },
             )
             // Delete: only if real user message
@@ -247,7 +244,7 @@ internal fun TurnBubble(
                     },
                     onClick = {
                         showMenu = false
-                        onForkSession(turn.userMessage.id)
+                        callbacks.onForkSession(turn.userMessage.id)
                     },
                 )
             }

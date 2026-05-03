@@ -31,13 +31,8 @@ internal fun ChatTopBar(
     showMenu: Boolean,
     onShowMenuChange: (Boolean) -> Unit,
     scrollBehavior: TopAppBarScrollBehavior,
-    onNavigateBack: () -> Unit,
-    onNavigateToSessionDiff: () -> Unit,
-    onAbort: () -> Unit,
-    onExportSession: () -> Unit,
+    callbacks: ChatCallbacks,
     onRenameSession: () -> Unit,
-    onUnrevertSession: () -> Unit,
-    onDeleteSession: () -> Unit,
     hasRevert: Boolean,
 ) {
     TopAppBar(
@@ -73,7 +68,7 @@ internal fun ChatTopBar(
             }
         },
         navigationIcon = {
-            IconButton(onClick = onNavigateBack) {
+            IconButton(onClick = callbacks.onNavigateBack) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
@@ -82,14 +77,14 @@ internal fun ChatTopBar(
         },
         actions = {
             // Session diff navigation
-            IconButton(onClick = onNavigateToSessionDiff) {
+            IconButton(onClick = callbacks.onNavigateToSessionDiff) {
                 Icon(
                     imageVector = Icons.Default.Description,
                     contentDescription = "Changes",
                 )
             }
             if (sessionStatus !is SessionStatus.Idle) {
-                IconButton(onClick = onAbort) {
+                IconButton(onClick = callbacks.onAbort) {
                     Icon(
                         imageVector = Icons.Default.Stop,
                         contentDescription = "Stop",
@@ -136,16 +131,15 @@ internal fun ChatTopBar(
                         },
                         onClick = {
                             onShowMenuChange(false)
-                            onExportSession()
+                            callbacks.onExportSession()
                         },
                     )
-                    // Unrevert only if session has revert info
                     if (hasRevert) {
                         DropdownMenuItem(
                             text = { Text("Unrevert") },
                             onClick = {
                                 onShowMenuChange(false)
-                                onUnrevertSession()
+                                callbacks.onUnrevertSession()
                             },
                         )
                     }
@@ -160,7 +154,7 @@ internal fun ChatTopBar(
                         },
                         onClick = {
                             onShowMenuChange(false)
-                            onDeleteSession()
+                            callbacks.onDeleteSession()
                         },
                     )
                 }

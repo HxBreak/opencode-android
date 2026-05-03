@@ -74,11 +74,7 @@ import kotlinx.coroutines.launch
 import me.xiaok.opencode.ui.components.common.formatTokenCount
 import me.xiaok.opencode.domain.model.BuiltInCommand
 import me.xiaok.opencode.domain.model.BuiltInCommands
-import me.xiaok.opencode.domain.model.Message
-import me.xiaok.opencode.domain.model.MentionItem
-import me.xiaok.opencode.domain.model.ModelRef
 import me.xiaok.opencode.domain.model.Part
-import me.xiaok.opencode.domain.model.QuestionRequest
 import me.xiaok.opencode.domain.model.SessionStatus
 
 // ---------------------------------------------------------------------------
@@ -156,6 +152,71 @@ fun ChatRoute(
         }
     }
 
+    val callbacks = remember(viewModel) {
+        ChatCallbacks(
+            onSendMessage = { viewModel.sendMessage(it) },
+            onAbort = { viewModel.abortSession() },
+            onReplyPermission = { id, reply -> viewModel.replyPermission(id, reply) },
+            onReplyQuestion = { question, answers -> viewModel.replyQuestion(question, answers) },
+            onRejectQuestion = { question -> viewModel.rejectQuestion(question) },
+            onSaveDraft = { viewModel.saveDraft(it) },
+            onReconcileMentions = { viewModel.reconcileMentions(it) },
+            onForkSession = { messageId ->
+                viewModel.forkSession(messageId) { forkedId ->
+                    onNavigateToForkedSession?.invoke(forkedId)
+                }
+            },
+            onRevertSession = { viewModel.revertSession(it) },
+            onUnrevertSession = { viewModel.unrevertSession() },
+            onLoadOlderMessages = { viewModel.loadOlderMessages() },
+            onNavigateBack = onNavigateBack,
+            onAgentSelected = { viewModel.selectAgent(it) },
+            onModelSelected = { viewModel.selectModel(it) },
+            onVariantSelected = { viewModel.selectVariant(it) },
+            onAttachImage = {
+                photoPickerLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            },
+            onRemoveImage = { viewModel.removeImage(it) },
+            onSearchFiles = { query -> viewModel.searchFiles(query) },
+            onRenameSession = { newTitle -> viewModel.renameSession(newTitle) },
+            onCopyMessage = { text ->
+                clipboardManager.setText(AnnotatedString(text))
+                Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+            },
+            onDeleteMessage = { messageId -> viewModel.deleteMessage(messageId) },
+            onExportSession = {
+                scope.launch {
+                    try {
+                        val markdown = viewModel.exportSession()
+                        val sendIntent = android.content.Intent().apply {
+                            action = android.content.Intent.ACTION_SEND
+                            putExtra(android.content.Intent.EXTRA_TEXT, markdown)
+                            type = "text/markdown"
+                        }
+                        context.startActivity(
+                            android.content.Intent.createChooser(sendIntent, "Export chat")
+                        )
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onAutoScrollToggled = { viewModel.toggleAutoScroll() },
+            onNavigateToSession = onNavigateToSession,
+            onDeleteSession = {
+                onNavigateBack()
+                viewModel.deleteSession()
+            },
+            onMentionSelect = { mention, start, end -> viewModel.addMention(mention, start, end) },
+            onBuiltInCommand = handleBuiltInCommand,
+            onNavigateToToolDetail = onNavigateToToolDetail,
+            onNavigateToSessionDiff = onNavigateToSessionDiff,
+            onNavigateToFullScreenEditor = onNavigateToFullScreenEditor,
+        )
+    }
+
     ChatScreen(
         content = content,
         loading = loading,
@@ -165,67 +226,7 @@ fun ChatRoute(
         chatFontSize = chatFontSize,
         autoScrollEnabled = autoScrollEnabled,
         snackbarHostState = snackbarHostState,
-        onSendMessage = { viewModel.sendMessage(it) },
-        onAbort = { viewModel.abortSession() },
-        onReplyPermission = { id, reply -> viewModel.replyPermission(id, reply) },
-        onReplyQuestion = { question, answers -> viewModel.replyQuestion(question, answers) },
-        onRejectQuestion = { question -> viewModel.rejectQuestion(question) },
-        onSaveDraft = { viewModel.saveDraft(it) },
-        onReconcileMentions = { viewModel.reconcileMentions(it) },
-        onForkSession = { messageId ->
-            viewModel.forkSession(messageId) { forkedId ->
-                onNavigateToForkedSession?.invoke(forkedId)
-            }
-        },
-        onRevertSession = { viewModel.revertSession(it) },
-        onUnrevertSession = { viewModel.unrevertSession() },
-        onLoadOlderMessages = { viewModel.loadOlderMessages() },
-        onNavigateBack = onNavigateBack,
-        onAgentSelected = { viewModel.selectAgent(it) },
-        onModelSelected = { viewModel.selectModel(it) },
-        onVariantSelected = { viewModel.selectVariant(it) },
-        onAttachImage = {
-            photoPickerLauncher.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-            )
-        },
-        onRemoveImage = { viewModel.removeImage(it) },
-        onSearchFiles = { query -> viewModel.searchFiles(query) },
-        onRenameSession = { newTitle -> viewModel.renameSession(newTitle) },
-        onCopyMessage = { text ->
-            clipboardManager.setText(AnnotatedString(text))
-            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-        },
-        onDeleteMessage = { messageId -> viewModel.deleteMessage(messageId) },
-        onExportSession = {
-            scope.launch {
-                try {
-                    val markdown = viewModel.exportSession()
-                    // Share via Android share sheet
-                    val sendIntent = android.content.Intent().apply {
-                        action = android.content.Intent.ACTION_SEND
-                        putExtra(android.content.Intent.EXTRA_TEXT, markdown)
-                        type = "text/markdown"
-                    }
-                    context.startActivity(
-                        android.content.Intent.createChooser(sendIntent, "Export chat")
-                    )
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-        },
-        onAutoScrollToggled = { viewModel.toggleAutoScroll() },
-        onNavigateToSession = onNavigateToSession,
-        onDeleteSession = {
-            onNavigateBack()
-            viewModel.deleteSession()
-        },
-        onMentionSelect = { mention, start, end -> viewModel.addMention(mention, start, end) },
-        onBuiltInCommand = handleBuiltInCommand,
-        onNavigateToToolDetail = onNavigateToToolDetail,
-        onNavigateToSessionDiff = onNavigateToSessionDiff,
-        onNavigateToFullScreenEditor = onNavigateToFullScreenEditor,
+        callbacks = callbacks,
     )
 
     shareDialogUrl?.let { url ->
@@ -247,36 +248,7 @@ fun ChatScreen(
     chatFontSize: String,
     autoScrollEnabled: Boolean,
     snackbarHostState: SnackbarHostState,
-    onSendMessage: (String) -> Unit,
-    onAbort: () -> Unit,
-    onReplyPermission: (String, String) -> Unit,
-    onReplyQuestion: (QuestionRequest, List<List<String>>) -> Unit,
-    onRejectQuestion: (QuestionRequest) -> Unit,
-    onSaveDraft: (String) -> Unit,
-    onReconcileMentions: (String) -> Unit = {},
-    onForkSession: (String) -> Unit,
-    onRevertSession: (String) -> Unit,
-    onUnrevertSession: () -> Unit,
-    onLoadOlderMessages: () -> Unit,
-    onNavigateBack: () -> Unit,
-    onRenameSession: (String) -> Unit = {},
-    onExportSession: () -> Unit = {},
-    onAgentSelected: (String?) -> Unit = {},
-    onModelSelected: (ModelRef?) -> Unit = {},
-    onVariantSelected: (String?) -> Unit = {},
-    onAttachImage: () -> Unit = {},
-    onRemoveImage: (Int) -> Unit = {},
-    onSearchFiles: suspend (String) -> List<String> = { emptyList() },
-    onMentionSelect: (MentionItem, Int, Int) -> Unit = { _, _, _ -> },
-    onCopyMessage: (String) -> Unit = {},
-    onDeleteMessage: (String) -> Unit = {},
-    onAutoScrollToggled: () -> Unit = {},
-    onNavigateToSession: (String) -> Unit = {},
-    onDeleteSession: () -> Unit = {},
-    onBuiltInCommand: (BuiltInCommand) -> Unit = {},
-    onNavigateToToolDetail: (String) -> Unit = {},
-    onNavigateToSessionDiff: () -> Unit = {},
-    onNavigateToFullScreenEditor: () -> Unit = {},
+    callbacks: ChatCallbacks,
 ) {
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val listState = rememberLazyListState()
@@ -314,7 +286,7 @@ fun ChatScreen(
         val editedText = FullScreenEditorState.consumeResult()
         if (editedText != null) {
             inputText = editedText
-            onSaveDraft(editedText)
+            callbacks.onSaveDraft(editedText)
         }
     }
 
@@ -394,7 +366,7 @@ fun ChatScreen(
             !loading.isLoadingMore &&
             !loading.isLoading
         ) {
-            onLoadOlderMessages()
+            callbacks.onLoadOlderMessages()
         }
     }
 
@@ -409,7 +381,7 @@ fun ChatScreen(
     activePermission?.let { request ->
         PermissionDialog(
             request = request,
-            onReply = onReplyPermission,
+            onReply = callbacks.onReplyPermission,
             onDismiss = {},
         )
     }
@@ -429,7 +401,7 @@ fun ChatScreen(
 
         RevertConfirmationDialog(
             messagePreview = messagePreview,
-            onConfirm = { onRevertSession(messageId) },
+            onConfirm = { callbacks.onRevertSession(messageId) },
             onDismiss = { revertMessageId = null },
         )
     }
@@ -439,7 +411,7 @@ fun ChatScreen(
         RenameSessionDialog(
             currentTitle = content.session?.title?.ifEmpty { "Chat" } ?: "Chat",
             onConfirm = { newTitle ->
-                onRenameSession(newTitle)
+                callbacks.onRenameSession(newTitle)
             },
             onDismiss = { showRenameDialog = false },
         )
@@ -454,7 +426,7 @@ fun ChatScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        onDeleteMessage(messageId)
+                        callbacks.onDeleteMessage(messageId)
                         deleteMessageId = null
                     },
                 ) {
@@ -490,13 +462,8 @@ fun ChatScreen(
                 showMenu = showMenu,
                 onShowMenuChange = { showMenu = it },
                 scrollBehavior = scrollBehavior,
-                onNavigateBack = onNavigateBack,
-                onNavigateToSessionDiff = onNavigateToSessionDiff,
-                onAbort = onAbort,
-                onExportSession = onExportSession,
+                callbacks = callbacks,
                 onRenameSession = { showRenameDialog = true },
-                onUnrevertSession = onUnrevertSession,
-                onDeleteSession = onDeleteSession,
                 hasRevert = content.session?.revert != null,
             )
         },
@@ -527,8 +494,8 @@ fun ChatScreen(
                 text = inputText,
                 onTextChange = { newText ->
                     inputText = newText
-                    onSaveDraft(newText)
-                    onReconcileMentions(newText)
+                    callbacks.onSaveDraft(newText)
+                    callbacks.onReconcileMentions(newText)
                 },
                 onSend = {
                     val trimmed = inputText.trimStart()
@@ -536,13 +503,12 @@ fun ChatScreen(
                         val commandName = trimmed.removePrefix("/").substringBefore(" ")
                         val cmd = BuiltInCommands.match(commandName)
                         if (cmd != null) {
-                            onBuiltInCommand(cmd)
+                            callbacks.onBuiltInCommand(cmd)
                         } else {
-                            // Server-side command → handled by SendMessageUseCase
-                            onSendMessage(inputText)
+                            callbacks.onSendMessage(inputText)
                         }
                     } else {
-                        onSendMessage(inputText)
+                        callbacks.onSendMessage(inputText)
                     }
                     inputText = ""
                 },
@@ -552,18 +518,11 @@ fun ChatScreen(
                 stats = stats,
                 selection = selection,
                 attachedImages = input.attachedImages,
-                onAttachImage = onAttachImage,
-                onRemoveImage = onRemoveImage,
-                onAgentSelected = onAgentSelected,
-                onModelSelected = onModelSelected,
-                onVariantSelected = onVariantSelected,
-                onBuiltInCommand = onBuiltInCommand,
-                onSearchFiles = onSearchFiles,
-                onMentionSelect = onMentionSelect,
+                callbacks = callbacks,
                 mentionDisplayTexts = input.mentions.map { it.displayText }.toSet(),
                 onExpand = {
                     FullScreenEditorState.prepare(inputText)
-                    onNavigateToFullScreenEditor()
+                    callbacks.onNavigateToFullScreenEditor()
                 },
             )
             }
@@ -612,12 +571,9 @@ fun ChatScreen(
 
                         TurnBubble(
                             turn = turn,
-                            onCopyMessage = onCopyMessage,
+                            callbacks = callbacks,
                             onDeleteMessage = onDeleteMessageRemembered,
-                            onForkSession = onForkSession,
                             onRevertSession = onRevertSessionRemembered,
-                            onNavigateToSession = onNavigateToSession,
-                            onNavigateToToolDetail = onNavigateToToolDetail,
                             fontSize = chatFontSize,
                             isLastTurn = isLastTurn,
                             isActiveSession = isActiveSession,
@@ -632,10 +588,10 @@ fun ChatScreen(
                         QuestionCard(
                             question = question,
                             onSubmit = { answers ->
-                                onReplyQuestion(question, answers)
+                                callbacks.onReplyQuestion(question, answers)
                             },
                             onReject = {
-                                onRejectQuestion(question)
+                                callbacks.onRejectQuestion(question)
                             },
                             isSubmitting = question.id in loading.submittingQuestionIds,
                         )
@@ -657,7 +613,7 @@ fun ChatScreen(
                 HoverSentinel(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     childSessions = content.childSessions,
-                    onNavigateToSession = onNavigateToSession,
+                    onNavigateToSession = callbacks.onNavigateToSession,
                     onDismiss = { sentinelVisible = false },
                 )
             }
@@ -669,7 +625,7 @@ fun ChatScreen(
                     turnCount = content.turns.size,
                     isLoadingMore = loading.isLoadingMore,
                     autoScrollEnabled = autoScrollEnabled,
-                    onAutoScrollToggled = onAutoScrollToggled,
+                    onAutoScrollToggled = callbacks.onAutoScrollToggled,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(bottom = 16.dp, end = 12.dp),
