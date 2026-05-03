@@ -401,7 +401,7 @@ fun ChatScreen(
     val currentError = loading.error
     LaunchedEffect(currentError) {
         if (currentError != null) {
-            snackbarHostState.showSnackbar(currentError)
+            snackbarHostState.showSnackbar(currentError.message)
         }
     }
 

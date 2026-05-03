@@ -19,7 +19,7 @@ private fun <T> ChatViewModel.executeSessionOp(
             onResult?.invoke(result)
         } catch (e: Exception) {
             errorCollector.logError(e, "Chat")
-            _error.value = e.message ?: "Failed to $operationName"
+            _error.value = ChatError(ErrorKind.SESSION, e.message ?: "Failed to $operationName")
         }
     }
 }

@@ -66,8 +66,8 @@ class ChatViewModel @Inject constructor(
         ?: throw IllegalArgumentException("sessionId is required")
 
     private val _isSending = MutableStateFlow(false)
-    internal val _error = MutableStateFlow<String?>(null)
-    private val showError: (String) -> Unit = { msg -> _error.value = msg }
+    internal val _error = MutableStateFlow<ChatError?>(null)
+    private val showError: (String) -> Unit = { msg -> _error.value = ChatError(ErrorKind.LOAD, msg) }
     private val _uiEvents = MutableSharedFlow<ChatUiEvent>(extraBufferCapacity = 5)
     val uiEvents: SharedFlow<ChatUiEvent> = _uiEvents.asSharedFlow()
     private val _isLoading = MutableStateFlow(false)
@@ -363,7 +363,7 @@ class ChatViewModel @Inject constructor(
                     modelSelectionUseCase.tryApplyModelDefaults()
                 }
                 is MessageLoadingUseCase.LoadResult.Error -> {
-                    _error.value = result.message
+                    _error.value = ChatError(ErrorKind.LOAD, result.message)
                 }
             }
             _isLoading.value = false
@@ -464,7 +464,7 @@ class ChatViewModel @Inject constructor(
                     }
                 }
                 is MessageLoadingUseCase.LoadResult.Error -> {
-                    _error.value = result.message
+                    _error.value = ChatError(ErrorKind.LOAD, result.message)
                 }
             }
             _isLoadingMore.value = false
@@ -509,7 +509,7 @@ class ChatViewModel @Inject constructor(
                 is SendMessageUseCase.SendResult.Error -> {
                     _draftCleared = false
                     if (result.message.isNotEmpty()) {
-                        _error.value = result.message
+                        _error.value = ChatError(ErrorKind.SEND, result.message)
                     }
                 }
             }
@@ -537,7 +537,7 @@ class ChatViewModel @Inject constructor(
                 sessionOpsUseCase.abortSession(serverId, sessionId, directory)
             } catch (e: Exception) {
                 errorCollector.logError(e, "Chat")
-                _error.value = e.message ?: "Failed to abort"
+                _error.value = ChatError(ErrorKind.SESSION, e.message ?: "Failed to abort")
             }
         }
     }
@@ -546,7 +546,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val result = permissionQuestionUseCase.replyPermission(serverId, sessionId, permissionId, reply, message)
             result.exceptionOrNull()?.let { e ->
-                _error.value = e.message ?: "Failed to reply"
+                _error.value = ChatError(ErrorKind.PERMISSION, e.message ?: "Failed to reply")
             }
         }
     }
@@ -559,7 +559,7 @@ class ChatViewModel @Inject constructor(
                 }
                 is PermissionQuestionUseCase.QuestionResult.ApiFailure -> {
                     _submittingQuestionIds.value = _submittingQuestionIds.value - question.id
-                    _error.value = result.errorMessage
+                    _error.value = ChatError(ErrorKind.PERMISSION, result.errorMessage)
                 }
                 is PermissionQuestionUseCase.QuestionResult.ServerNotFound -> {
                     _submittingQuestionIds.value = _submittingQuestionIds.value - question.id
@@ -576,7 +576,7 @@ class ChatViewModel @Inject constructor(
                 }
                 is PermissionQuestionUseCase.QuestionResult.ApiFailure -> {
                     _submittingQuestionIds.value = _submittingQuestionIds.value - question.id
-                    _error.value = result.errorMessage
+                    _error.value = ChatError(ErrorKind.PERMISSION, result.errorMessage)
                 }
                 is PermissionQuestionUseCase.QuestionResult.ServerNotFound -> {
                     _submittingQuestionIds.value = _submittingQuestionIds.value - question.id
@@ -629,7 +629,7 @@ class ChatViewModel @Inject constructor(
                     val msg = "Failed to attach image: compression failed for uri=$uri"
                     Log.e(TAG, msg)
                     errorCollector.logError(msg, "Chat")
-                    _error.value = "Failed to attach image: compression failed"
+                    _error.value = ChatError(ErrorKind.IMAGE, "Failed to attach image: compression failed")
                     return@launch
                 }
                 val mimeType = imageCompressor.getMimeType(uri)
@@ -640,7 +640,7 @@ class ChatViewModel @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "attachImage: failed for uri=$uri", e)
                 errorCollector.logError(e, "Chat")
-                _error.value = "Failed to attach image: ${e.message}"
+                _error.value = ChatError(ErrorKind.IMAGE, "Failed to attach image: ${e.message}")
             }
         }
     }
@@ -689,7 +689,7 @@ class ChatViewModel @Inject constructor(
                 eventReducer.processEvent(serverId, SseEvent.MessageRemoved(sessionId, messageId))
             } catch (e: Exception) {
                 errorCollector.logError(e, "Chat")
-                _error.value = e.message ?: "Failed to delete message"
+                _error.value = ChatError(ErrorKind.SESSION, e.message ?: "Failed to delete message")
             }
         }
     }
@@ -721,7 +721,7 @@ class ChatViewModel @Inject constructor(
         if (isLocal) {
             viewModelScope.launch {
                 when (val result = chatCommandUseCase.execute(command, serverId, sessionId)) {
-                    is ChatCommandUseCase.CommandResult.Error -> _error.value = result.message
+                    is ChatCommandUseCase.CommandResult.Error -> _error.value = ChatError(ErrorKind.COMMAND, result.message)
                     is ChatCommandUseCase.CommandResult.ShareSuccess ->
                         _uiEvents.emit(ChatUiEvent.ShowShareDialog(result.url))
                     is ChatCommandUseCase.CommandResult.Handled ->

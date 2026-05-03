@@ -46,6 +46,20 @@ data class ChatContentState(
     val childSessions: List<ChildSessionInfo> = emptyList(),
 )
 
+enum class ErrorKind {
+    LOAD,
+    SEND,
+    PERMISSION,
+    IMAGE,
+    COMMAND,
+    SESSION,
+}
+
+data class ChatError(
+    val kind: ErrorKind,
+    val message: String,
+)
+
 /** Transient loading/error flags managed by ViewModel */
 data class ChatLoadingState(
     val sessionStatus: SessionStatus = SessionStatus.Idle,
@@ -53,7 +67,7 @@ data class ChatLoadingState(
     val isLoadingMore: Boolean = false,
     val hasOlderMessages: Boolean = true,
     val isSending: Boolean = false,
-    val error: String? = null,
+    val error: ChatError? = null,
     val submittingQuestionIds: Set<String> = emptySet(),
 )
 
