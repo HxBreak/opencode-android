@@ -102,14 +102,23 @@ fun ChatRoute(
     onNavigateToFullScreenEditor: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val content by viewModel.sessionContent.collectAsStateWithLifecycle()
+    val loading by viewModel.loadingState.collectAsStateWithLifecycle()
+    val selection by viewModel.selectionState.collectAsStateWithLifecycle()
+    val input by viewModel.inputState.collectAsStateWithLifecycle()
+    val stats by viewModel.statsState.collectAsStateWithLifecycle()
+    val chatFontSize by viewModel.chatFontSize.collectAsStateWithLifecycle()
+    val autoScrollEnabled by viewModel.autoScrollEnabled.collectAsStateWithLifecycle()
+    val shareUrl by viewModel.shareUrl.collectAsStateWithLifecycle()
+    val commandMessage by viewModel.commandMessage.collectAsStateWithLifecycle()
+    val commandMessageId by viewModel.commandMessageId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     // Debug: log state changes for tracking real-time update issues
-    LaunchedEffect(uiState.messages.size, uiState.sessionStatus) {
-        Log.d("ChatScreen", "uiState: msgs=${uiState.messages.size}, turns=${uiState.turns.size}, status=${uiState.sessionStatus}, " +
-            "partsKeys=${uiState.parts.size}, permissions=${uiState.permissions.size}, " +
-            "questions=${uiState.questions.size}, isLoading=${uiState.isLoading}")
+    LaunchedEffect(content.messages.size, loading.sessionStatus) {
+        Log.d("ChatScreen", "state: msgs=${content.messages.size}, turns=${content.turns.size}, status=${loading.sessionStatus}, " +
+            "partsKeys=${content.parts.size}, permissions=${content.permissions.size}, " +
+            "questions=${content.questions.size}, isLoading=${loading.isLoading}")
     }
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -140,7 +149,16 @@ fun ChatRoute(
     }
 
     ChatScreen(
-        uiState = uiState,
+        content = content,
+        loading = loading,
+        selection = selection,
+        input = input,
+        stats = stats,
+        chatFontSize = chatFontSize,
+        autoScrollEnabled = autoScrollEnabled,
+        shareUrl = shareUrl,
+        commandMessage = commandMessage,
+        commandMessageId = commandMessageId,
         onSendMessage = { viewModel.sendMessage(it) },
         onAbort = { viewModel.abortSession() },
         onReplyPermission = { id, reply -> viewModel.replyPermission(id, reply) },
@@ -205,7 +223,7 @@ fun ChatRoute(
     )
 
     // Share URL dialog — triggered by /share command
-    uiState.shareUrl?.let { url ->
+    shareUrl?.let { url ->
         ShareUrlDialog(
             url = url,
             onDismiss = { viewModel.dismissShareDialog() },
@@ -216,7 +234,16 @@ fun ChatRoute(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
-    uiState: ChatUiState,
+    content: ChatContentState,
+    loading: ChatLoadingState,
+    selection: ChatSelectionState,
+    input: ChatInputState,
+    stats: ChatStatsState,
+    chatFontSize: String,
+    autoScrollEnabled: Boolean,
+    shareUrl: String?,
+    commandMessage: String?,
+    commandMessageId: Long,
     onSendMessage: (String) -> Unit,
     onAbort: () -> Unit,
     onReplyPermission: (String, String) -> Unit,
@@ -252,11 +279,11 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    var inputText by remember(uiState.draftText) { mutableStateOf(uiState.draftText) }
+    var inputText by remember(input.draftText) { mutableStateOf(input.draftText) }
     var showMenu by remember { mutableStateOf(false) }
 
     // Active permission dialog (show first of each)
-    val activePermission = uiState.permissions.firstOrNull()
+    val activePermission = content.permissions.firstOrNull()
 
     // Revert confirmation dialog
     var revertMessageId by remember { mutableStateOf<String?>(null) }
@@ -275,8 +302,8 @@ fun ChatScreen(
     var pendingScrollOffset by remember { mutableStateOf(0) }
 
     var sentinelVisible by rememberSaveable { mutableStateOf(true) }
-    LaunchedEffect(uiState.childSessions.size) {
-        if (uiState.childSessions.isNotEmpty()) {
+    LaunchedEffect(content.childSessions.size) {
+        if (content.childSessions.isNotEmpty()) {
             sentinelVisible = true
         }
     }
@@ -290,10 +317,10 @@ fun ChatScreen(
     }
 
     // Auto-scroll to bottom only when user is near bottom and new content arrives
-    val turnsSnapshot = uiState.turns
+    val turnsSnapshot = content.turns
 
     val lastTurn = turnsSnapshot.lastOrNull()
-    val contentFingerprint = if (uiState.autoScrollEnabled) {
+    val contentFingerprint = if (autoScrollEnabled) {
         lastTurn?.partLookup?.values?.sumOf {
             when (it) {
                 is Part.Text -> it.text.length
@@ -308,7 +335,7 @@ fun ChatScreen(
         val newSize = turnsSnapshot.size
         val oldSize = previousMessageCount
 
-        if (!uiState.autoScrollEnabled) {
+        if (!autoScrollEnabled) {
             previousMessageCount = newSize
             if (pendingScrollOffset > 0) {
                 listState.scrollToItem(listState.firstVisibleItemIndex + pendingScrollOffset)
@@ -345,8 +372,8 @@ fun ChatScreen(
     // When older messages are prepended (isLoadingMore transitions from true→false),
     // we need to offset scroll position to maintain the user's current view.
     // We track the message count before and after to compute the offset.
-    LaunchedEffect(uiState.isLoadingMore) {
-        if (!uiState.isLoadingMore && previousMessageCount > 0) {
+    LaunchedEffect(loading.isLoadingMore) {
+        if (!loading.isLoadingMore && previousMessageCount > 0) {
             val currentSize = turnsSnapshot.size
             if (currentSize > previousMessageCount) {
                 val addedCount = currentSize - previousMessageCount
@@ -358,28 +385,28 @@ fun ChatScreen(
 
     // Load older messages when scrolled to top
     // Guard: skip if list is still empty (initial layout hasn't happened yet)
-    LaunchedEffect(listState.firstVisibleItemIndex, uiState.hasOlderMessages, uiState.isLoadingMore, uiState.isLoading) {
+    LaunchedEffect(listState.firstVisibleItemIndex, loading.hasOlderMessages, loading.isLoadingMore, loading.isLoading) {
         if (listState.layoutInfo.totalItemsCount > 0 &&
             listState.firstVisibleItemIndex <= 1 &&
-            uiState.hasOlderMessages &&
-            !uiState.isLoadingMore &&
-            !uiState.isLoading
+            loading.hasOlderMessages &&
+            !loading.isLoadingMore &&
+            !loading.isLoading
         ) {
             onLoadOlderMessages()
         }
     }
 
-    val currentError = uiState.error
+    val currentError = loading.error
     LaunchedEffect(currentError) {
         if (currentError != null) {
             snackbarHostState.showSnackbar(currentError)
         }
     }
 
-    val commandMessage = uiState.commandMessage
-    LaunchedEffect(uiState.commandMessageId) {
-        if (commandMessage != null) {
-            snackbarHostState.showSnackbar(commandMessage)
+    val cmdMessage = commandMessage
+    LaunchedEffect(commandMessageId) {
+        if (cmdMessage != null) {
+            snackbarHostState.showSnackbar(cmdMessage)
         }
     }
 
@@ -398,7 +425,7 @@ fun ChatScreen(
 
     // Revert confirmation dialog
     revertMessageId?.let { messageId ->
-        val turn = uiState.turns.find { it.userMessage.id == messageId }
+        val turn = content.turns.find { it.userMessage.id == messageId }
         val messagePreview = turn?.userMessage?.parts
             ?.filterIsInstance<Part.Text>()
             ?.firstOrNull()
@@ -415,7 +442,7 @@ fun ChatScreen(
     // Rename session dialog
     if (showRenameDialog) {
         RenameSessionDialog(
-            currentTitle = uiState.session?.title?.ifEmpty { "Chat" } ?: "Chat",
+            currentTitle = content.session?.title?.ifEmpty { "Chat" } ?: "Chat",
             onConfirm = { newTitle ->
                 onRenameSession(newTitle)
             },
@@ -461,10 +488,10 @@ fun ChatScreen(
         },
         topBar = {
             ChatTopBar(
-                sessionTitle = uiState.session?.title?.ifEmpty { "Chat" } ?: "Chat",
-                totalTokens = uiState.totalTokens,
-                isShared = uiState.session?.share != null,
-                sessionStatus = uiState.sessionStatus,
+                sessionTitle = content.session?.title?.ifEmpty { "Chat" } ?: "Chat",
+                totalTokens = stats.totalTokens,
+                isShared = content.session?.share != null,
+                sessionStatus = loading.sessionStatus,
                 showMenu = showMenu,
                 onShowMenuChange = { showMenu = it },
                 scrollBehavior = scrollBehavior,
@@ -475,7 +502,7 @@ fun ChatScreen(
                 onRenameSession = { showRenameDialog = true },
                 onUnrevertSession = onUnrevertSession,
                 onDeleteSession = onDeleteSession,
-                hasRevert = uiState.session?.revert != null,
+                hasRevert = content.session?.revert != null,
             )
         },
         bottomBar = {
@@ -483,19 +510,19 @@ fun ChatScreen(
                 // Todo sentinel — appears above input bar when todos exist
                 var todoSentinelVisible by remember { mutableStateOf(true) }
                 AnimatedVisibility(
-                    visible = todoSentinelVisible && uiState.todos.isNotEmpty(),
+                    visible = todoSentinelVisible && content.todos.isNotEmpty(),
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut(),
                 ) {
                     TodoSentinel(
                         modifier = Modifier.padding(top = 4.dp),
-                        todos = uiState.todos,
+                        todos = content.todos,
                         onDismiss = { todoSentinelVisible = false },
                     )
                 }
                 // Reset sentinel visibility when active (non-completed) todos appear
-                LaunchedEffect(uiState.todos.size, uiState.todos.any { it.status != "completed" && it.status != "cancelled" }) {
-                    val hasActive = uiState.todos.any { it.status != "completed" && it.status != "cancelled" }
+                LaunchedEffect(content.todos.size, content.todos.any { it.status != "completed" && it.status != "cancelled" }) {
+                    val hasActive = content.todos.any { it.status != "completed" && it.status != "cancelled" }
                     if (hasActive) {
                         todoSentinelVisible = true
                     }
@@ -524,40 +551,25 @@ fun ChatScreen(
                     }
                     inputText = ""
                 },
-                sessionStatus = uiState.sessionStatus,
-                isSending = uiState.isSending,
-                sessionTitle = uiState.session?.title?.ifEmpty { "" } ?: "",
-                contextUsagePercent = uiState.contextUsagePercent,
-                totalTokens = uiState.totalTokens,
-                totalCost = uiState.totalCost,
-                conversationTurns = uiState.conversationTurns,
-                agents = uiState.agents,
-                selectedAgent = uiState.selectedAgent,
-                onAgentSelected = onAgentSelected,
-                providers = uiState.providers,
-                selectedModel = uiState.selectedModel,
-                onModelSelected = onModelSelected,
-                selectedVariant = uiState.selectedVariant,
-                variants = uiState.selectedModel?.let { ref ->
-                    uiState.providers
-                        .find { it.id == ref.providerID }
-                        ?.models?.get(ref.modelID)
-                        ?.variantNames ?: emptyList()
-                } ?: emptyList(),
-                onVariantSelected = onVariantSelected,
-                attachedImages = uiState.attachedImages,
+                sessionStatus = loading.sessionStatus,
+                isSending = loading.isSending,
+                sessionTitle = content.session?.title?.ifEmpty { "" } ?: "",
+                stats = stats,
+                selection = selection,
+                attachedImages = input.attachedImages,
                 onAttachImage = onAttachImage,
                 onRemoveImage = onRemoveImage,
-                commands = uiState.commands,
+                onAgentSelected = onAgentSelected,
+                onModelSelected = onModelSelected,
+                onVariantSelected = onVariantSelected,
                 onBuiltInCommand = onBuiltInCommand,
                 onSearchFiles = onSearchFiles,
                 onMentionSelect = onMentionSelect,
-                mentionDisplayTexts = uiState.mentions.map { it.displayText }.toSet(),
+                mentionDisplayTexts = input.mentions.map { it.displayText }.toSet(),
                 onExpand = {
                     FullScreenEditorState.prepare(inputText)
                     onNavigateToFullScreenEditor()
                 },
-                shareDisabled = uiState.shareDisabled,
             )
             }
         },
@@ -567,7 +579,7 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            if (uiState.messages.isEmpty() && !uiState.isLoading) {
+            if (content.messages.isEmpty() && !loading.isLoading) {
                 ChatEmptyState()
             } else {
                 LazyColumn(
@@ -580,7 +592,7 @@ fun ChatScreen(
                     ),
                 ) {
                     // Loading indicator at top when fetching older messages
-                    if (uiState.isLoadingMore) {
+                    if (loading.isLoadingMore) {
                         item {
                             Box(
                                 modifier = Modifier
@@ -597,11 +609,11 @@ fun ChatScreen(
                     }
 
                     items(
-                        items = uiState.turns,
+                        items = content.turns,
                         key = { it.turnId },
                     ) { turn ->
-                        val isLastTurn = turn.turnId == uiState.turns.lastOrNull()?.turnId
-                        val isActiveSession = uiState.sessionStatus is SessionStatus.Busy
+                        val isLastTurn = turn.turnId == content.turns.lastOrNull()?.turnId
+                        val isActiveSession = loading.sessionStatus is SessionStatus.Busy
 
                         TurnBubble(
                             turn = turn,
@@ -611,7 +623,7 @@ fun ChatScreen(
                             onRevertSession = onRevertSessionRemembered,
                             onNavigateToSession = onNavigateToSession,
                             onNavigateToToolDetail = onNavigateToToolDetail,
-                            fontSize = uiState.chatFontSize,
+                            fontSize = chatFontSize,
                             isLastTurn = isLastTurn,
                             isActiveSession = isActiveSession,
                         )
@@ -619,7 +631,7 @@ fun ChatScreen(
 
                     // Pending question cards at bottom of message list
                     items(
-                        items = uiState.questions,
+                        items = content.questions,
                         key = { "question_${it.id}" },
                     ) { question ->
                         QuestionCard(
@@ -630,7 +642,7 @@ fun ChatScreen(
                             onReject = {
                                 onRejectQuestion(question)
                             },
-                            isSubmitting = question.id in uiState.submittingQuestionIds,
+                            isSubmitting = question.id in loading.submittingQuestionIds,
                         )
                     }
 
@@ -642,26 +654,26 @@ fun ChatScreen(
             }
 
             AnimatedVisibility(
-                visible = sentinelVisible && uiState.childSessions.isNotEmpty(),
+                visible = sentinelVisible && content.childSessions.isNotEmpty(),
                 enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
                 modifier = Modifier.align(Alignment.TopCenter),
             ) {
                 HoverSentinel(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    childSessions = uiState.childSessions,
+                    childSessions = content.childSessions,
                     onNavigateToSession = onNavigateToSession,
                     onDismiss = { sentinelVisible = false },
                 )
             }
 
             // Floating message navigation buttons
-            if (uiState.turns.size > 3) {
+            if (content.turns.size > 3) {
                 MessageNavigationButtons(
                     listState = listState,
-                    turnCount = uiState.turns.size,
-                    isLoadingMore = uiState.isLoadingMore,
-                    autoScrollEnabled = uiState.autoScrollEnabled,
+                    turnCount = content.turns.size,
+                    isLoadingMore = loading.isLoadingMore,
+                    autoScrollEnabled = autoScrollEnabled,
                     onAutoScrollToggled = onAutoScrollToggled,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)

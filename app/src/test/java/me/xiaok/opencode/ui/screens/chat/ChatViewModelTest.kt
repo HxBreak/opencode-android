@@ -199,10 +199,10 @@ class ChatViewModelTest {
         every { serverRepository.getServer(any()) } returns null
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.loadingState.collect {} }
         advanceUntilIdle()
 
-        val state = vm.uiState.first { it.error != null }
+        val state = vm.loadingState.first { it.error != null }
         assertEquals("Server not found", state.error)
         collectJob.cancel()
     }
@@ -212,10 +212,10 @@ class ChatViewModelTest {
         coEvery { api.listMessages(testServer, testSession.id, limit = any()) } throws RuntimeException("Network error")
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.loadingState.collect {} }
         advanceUntilIdle()
 
-        val state = vm.uiState.first { it.error != null }
+        val state = vm.loadingState.first { it.error != null }
         assertEquals("Network error", state.error)
         collectJob.cancel()
     }
@@ -307,10 +307,10 @@ class ChatViewModelTest {
         coEvery { api.getProviders(testServer) } returns providerList
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.selectionState.collect {} }
         advanceUntilIdle()
 
-        val state = vm.uiState.first { it.providers.isNotEmpty() }
+        val state = vm.selectionState.first { it.providers.isNotEmpty() }
         assertEquals(1, state.providers.size)
         assertEquals("anthropic", state.providers.first().id)
         collectJob.cancel()
@@ -329,10 +329,10 @@ class ChatViewModelTest {
         coEvery { api.getAgents(testServer) } returns agents
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.selectionState.collect {} }
         advanceUntilIdle()
 
-        val state = vm.uiState.first { it.agents.size == 2 }
+        val state = vm.selectionState.first { it.agents.size == 2 }
         assertEquals(2, state.agents.size)
         assertEquals("code", state.selectedAgent)
         collectJob.cancel()
@@ -351,10 +351,10 @@ class ChatViewModelTest {
         coEvery { api.getCommands(testServer) } returns commands
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.selectionState.collect {} }
         advanceUntilIdle()
 
-        val state = vm.uiState.first { it.commands.size == 2 }
+        val state = vm.selectionState.first { it.commands.size == 2 }
         assertEquals(2, state.commands.size)
         collectJob.cancel()
     }
@@ -368,13 +368,13 @@ class ChatViewModelTest {
         coEvery { settingsRepository.setRecentAgent(any(), any()) } just Awaits
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.selectionState.collect {} }
         advanceUntilIdle()
 
         vm.selectAgent("explore")
         advanceUntilIdle()
 
-        val state = vm.uiState.first { it.selectedAgent == "explore" }
+        val state = vm.selectionState.first { it.selectedAgent == "explore" }
         assertEquals("explore", state.selectedAgent)
         collectJob.cancel()
 
@@ -391,13 +391,13 @@ class ChatViewModelTest {
         val model = TestFixtures.testModelRef()
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.selectionState.collect {} }
         advanceUntilIdle()
 
         vm.selectModel(model)
         advanceUntilIdle()
 
-        val state = vm.uiState.first { it.selectedModel != null }
+        val state = vm.selectionState.first { it.selectedModel != null }
         assertEquals(model, state.selectedModel)
         collectJob.cancel()
 
@@ -411,13 +411,13 @@ class ChatViewModelTest {
     @Test
     fun `selectVariant updates state`() = testScope.runTest {
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.selectionState.collect {} }
         advanceUntilIdle()
 
         vm.selectVariant("fast")
         advanceUntilIdle()
 
-        val state = vm.uiState.first { it.selectedVariant == "fast" }
+        val state = vm.selectionState.first { it.selectedVariant == "fast" }
         assertEquals("fast", state.selectedVariant)
         collectJob.cancel()
     }
@@ -731,15 +731,15 @@ class ChatViewModelTest {
         coEvery { api.listMessages(testServer, testSession.id, limit = any()) } throws RuntimeException("Test error")
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.loadingState.collect {} }
         advanceUntilIdle()
 
-        val stateWithErr = vm.uiState.first { it.error != null }
+        val stateWithErr = vm.loadingState.first { it.error != null }
         assertEquals("Test error", stateWithErr.error)
 
         vm.dismissError()
 
-        val stateAfter = vm.uiState.first { it.error == null }
+        val stateAfter = vm.loadingState.first { it.error == null }
         assertNull(stateAfter.error)
         collectJob.cancel()
     }
@@ -901,7 +901,7 @@ class ChatViewModelTest {
         vm.clearAttachedImages()
         advanceUntilIdle()
 
-        assertTrue(vm.uiState.value.attachedImages.isEmpty())
+        assertTrue(vm.inputState.value.attachedImages.isEmpty())
     }
 
     // ====================================================================
@@ -962,10 +962,10 @@ class ChatViewModelTest {
         eventReducer.setSessions(testServer.id, listOf(testSession))
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.sessionContent.collect {} }
         advanceUntilIdle()
 
-        val state = vm.uiState.value
+        val state = vm.sessionContent.value
         assertTrue(state.childSessions.isEmpty())
         collectJob.cancel()
     }
@@ -993,10 +993,10 @@ class ChatViewModelTest {
         eventReducer.setSessions(testServer.id, listOf(testSession, child1, child2, unrelated))
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.sessionContent.collect {} }
         advanceUntilIdle()
 
-        val state = vm.uiState.first { it.childSessions.size == 2 }
+        val state = vm.sessionContent.first { it.childSessions.size == 2 }
         assertEquals(2, state.childSessions.size)
         assertEquals("First child", state.childSessions[0].session.title)
         assertEquals("Second child", state.childSessions[1].session.title)
@@ -1019,10 +1019,10 @@ class ChatViewModelTest {
         eventReducer.updateSessionStatus("child-idle", SessionStatus.Idle)
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.sessionContent.collect {} }
         advanceUntilIdle()
 
-        val state = vm.uiState.first { it.childSessions.size == 2 }
+        val state = vm.sessionContent.first { it.childSessions.size == 2 }
         val busyChild = state.childSessions.first { it.session.id == "child-busy" }
         val idleChild = state.childSessions.first { it.session.id == "child-idle" }
         assertTrue(busyChild.status is SessionStatus.Busy)
@@ -1040,16 +1040,16 @@ class ChatViewModelTest {
         eventReducer.setSessions(testServer.id, listOf(testSession, child))
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.sessionContent.collect {} }
         advanceUntilIdle()
 
-        val initialState = vm.uiState.first { it.childSessions.size == 1 }
+        val initialState = vm.sessionContent.first { it.childSessions.size == 1 }
         assertTrue(initialState.childSessions.first().status is SessionStatus.Idle)
 
         eventReducer.updateSessionStatus("child-update", SessionStatus.Busy)
         advanceUntilIdle()
 
-        val updatedState = vm.uiState.first {
+        val updatedState = vm.sessionContent.first {
             it.childSessions.isNotEmpty() && it.childSessions.first().status is SessionStatus.Busy
         }
         assertTrue(updatedState.childSessions.first().status is SessionStatus.Busy)
@@ -1066,10 +1066,10 @@ class ChatViewModelTest {
         eventReducer.setSessions(testServer.id, listOf(testSession, child))
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.sessionContent.collect {} }
         advanceUntilIdle()
 
-        val state = vm.uiState.first { it.childSessions.size == 1 }
+        val state = vm.sessionContent.first { it.childSessions.size == 1 }
         val childInfo = state.childSessions.first()
         assertTrue(childInfo.status is SessionStatus.Idle)
         collectJob.cancel()
@@ -1086,10 +1086,10 @@ class ChatViewModelTest {
         eventReducer.updateSessionStatus("child-retry", SessionStatus.Retry(attempt = 3, message = "timeout"))
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.sessionContent.collect {} }
         advanceUntilIdle()
 
-        val state = vm.uiState.first { it.childSessions.size == 1 }
+        val state = vm.sessionContent.first { it.childSessions.size == 1 }
         val retryStatus = state.childSessions.first().status
         assertTrue(retryStatus is SessionStatus.Retry)
         assertEquals(3, (retryStatus as SessionStatus.Retry).attempt)
@@ -1104,15 +1104,15 @@ class ChatViewModelTest {
         )
 
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.sessionContent.collect {} }
         advanceUntilIdle()
 
-        assertEquals(0, vm.uiState.value.childSessions.size)
+        assertEquals(0, vm.sessionContent.value.childSessions.size)
 
         eventReducer.setSessions(testServer.id, listOf(testSession, child1))
         advanceUntilIdle()
 
-        val state = vm.uiState.first { it.childSessions.isNotEmpty() }
+        val state = vm.sessionContent.first { it.childSessions.isNotEmpty() }
         assertEquals(1, state.childSessions.size)
         assertEquals("child-add1", state.childSessions.first().session.id)
 
@@ -1123,7 +1123,7 @@ class ChatViewModelTest {
         eventReducer.setSessions(testServer.id, listOf(testSession, child1, child2))
         advanceUntilIdle()
 
-        val updated = vm.uiState.first { it.childSessions.size == 2 }
+        val updated = vm.sessionContent.first { it.childSessions.size == 2 }
         assertEquals(2, updated.childSessions.size)
         collectJob.cancel()
     }
@@ -1173,13 +1173,13 @@ class ChatViewModelTest {
         connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.CONNECTED)
         coEvery { api.getSessionStatuses(testServer, any<String>()) } returns mapOf(testSession.id to SessionStatus.Busy)
         val vm = createViewModel()
-        val collectJob = backgroundScope.launch { vm.uiState.collect {} }
+        val collectJob = backgroundScope.launch { vm.loadingState.collect {} }
         advanceUntilIdle()
         connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.DISCONNECTED)
         advanceUntilIdle()
         connectionStatesFlow.value = mapOf(testServer.id to ServerRepository.ConnectionState.CONNECTED)
         advanceUntilIdle()
-        val updatedState = vm.uiState.first { it.sessionStatus is SessionStatus.Busy }
+        val updatedState = vm.loadingState.first { it.sessionStatus is SessionStatus.Busy }
         assertTrue(updatedState.sessionStatus is SessionStatus.Busy)
         collectJob.cancel()
     }

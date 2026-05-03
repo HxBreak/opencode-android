@@ -55,13 +55,10 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import me.xiaok.opencode.domain.model.AgentConfig
 import me.xiaok.opencode.domain.model.BuiltInCommand
 import me.xiaok.opencode.domain.model.BuiltInCommands
-import me.xiaok.opencode.domain.model.CommandInfo
 import me.xiaok.opencode.domain.model.MentionItem
 import me.xiaok.opencode.domain.model.ModelRef
-import me.xiaok.opencode.domain.model.Provider
 import me.xiaok.opencode.domain.model.SessionStatus
 
 @Composable
@@ -72,29 +69,19 @@ fun ChatInputBar(
     sessionStatus: SessionStatus,
     isSending: Boolean = false,
     sessionTitle: String,
-    contextUsagePercent: Int = 0,
-    totalTokens: Long = 0L,
-    totalCost: Double = 0.0,
-    conversationTurns: Int = 0,
-    agents: List<AgentConfig> = emptyList(),
-    selectedAgent: String? = null,
-    onAgentSelected: (String?) -> Unit = {},
-    providers: List<Provider> = emptyList(),
-    selectedModel: ModelRef? = null,
-    onModelSelected: (ModelRef?) -> Unit = {},
-    variants: List<String> = listOf("fast", "think", "agentic"),
-    selectedVariant: String? = null,
-    onVariantSelected: (String?) -> Unit = {},
-    attachedImages: List<AttachedImage> = emptyList(),
+    stats: ChatStatsState,
+    selection: ChatSelectionState,
+    attachedImages: List<AttachedImage>,
     onAttachImage: () -> Unit = {},
     onRemoveImage: (Int) -> Unit = {},
-    commands: List<CommandInfo> = emptyList(),
+    onAgentSelected: (String?) -> Unit = {},
+    onModelSelected: (ModelRef?) -> Unit = {},
+    onVariantSelected: (String?) -> Unit = {},
     onBuiltInCommand: (BuiltInCommand) -> Unit = {},
     onSearchFiles: suspend (String) -> List<String> = { emptyList() },
     onMentionSelect: (MentionItem, Int, Int) -> Unit = { _, _, _ -> },
-    mentionDisplayTexts: Set<String> = emptySet(),
+    mentionDisplayTexts: Set<String>,
     onExpand: () -> Unit = {},
-    shareDisabled: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val isBusy = sessionStatus !is SessionStatus.Idle || isSending
@@ -132,9 +119,9 @@ fun ChatInputBar(
     val filteredAgents = if (atDetection != null) {
         val q = atDetection.query
         if (q.isBlank()) {
-            agents.filter { !it.hidden && it.mode != "subagent" }
+            selection.agents.filter { !it.hidden && it.mode != "subagent" }
         } else {
-            agents.filter { !it.hidden && it.mode != "subagent" && it.name.contains(q, ignoreCase = true) }
+            selection.agents.filter { !it.hidden && it.mode != "subagent" && it.name.contains(q, ignoreCase = true) }
         }
     } else emptyList()
 
@@ -150,11 +137,11 @@ fun ChatInputBar(
     val filteredBuiltin = if (!isCommandMode) emptyList()
         else BuiltInCommands.filter(commandQuery)
             .filter { cmd ->
-                if (shareDisabled) cmd.id !in listOf("share", "unshare") else true
+                if (selection.shareDisabled) cmd.id !in listOf("share", "unshare") else true
             }
     val filteredServerCommands = if (!isCommandMode) emptyList()
-        else if (commandQuery.isBlank()) commands
-        else commands.filter {
+        else if (commandQuery.isBlank()) selection.commands
+        else selection.commands.filter {
             it.name.contains(commandQuery, ignoreCase = true)
         }
     val commandPopupVisible = isCommandMode && !(commandPopupDismissed && text == dismissedCommandText)
@@ -168,23 +155,28 @@ fun ChatInputBar(
         Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
             StatusRow(
                 status = sessionStatus,
-                contextUsagePercent = contextUsagePercent,
-                totalTokens = totalTokens,
-                totalCost = totalCost,
-                conversationTurns = conversationTurns,
+                contextUsagePercent = stats.contextUsagePercent,
+                totalTokens = stats.totalTokens,
+                totalCost = stats.totalCost,
+                conversationTurns = stats.conversationTurns,
             )
 
             Spacer(modifier = Modifier.height(6.dp))
 
             SelectorRow(
-                agents = agents,
-                selectedAgent = selectedAgent,
+                agents = selection.agents,
+                selectedAgent = selection.selectedAgent,
                 onAgentSelected = onAgentSelected,
-                providers = providers,
-                selectedModel = selectedModel,
+                providers = selection.providers,
+                selectedModel = selection.selectedModel,
                 onModelSelected = onModelSelected,
-                variants = variants,
-                selectedVariant = selectedVariant,
+                variants = selection.selectedModel?.let { ref ->
+                    selection.providers
+                        .find { it.id == ref.providerID }
+                        ?.models?.get(ref.modelID)
+                        ?.variantNames ?: emptyList()
+                } ?: emptyList(),
+                selectedVariant = selection.selectedVariant,
                 onVariantSelected = onVariantSelected,
             )
 

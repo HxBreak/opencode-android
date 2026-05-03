@@ -87,15 +87,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), "medium"
     )
 
-    private val _selectorState = combine(
-        modelSelectionUseCase.providers,
-        modelSelectionUseCase.agents,
-        modelSelectionUseCase.commands,
-        modelSelectionUseCase.selectedAgent,
-        modelSelectionUseCase.selectedModel,
-    ) { providers, agents, commands, selAgent, selModel ->
-        SelectorPartialState(providers, agents, commands, selAgent, selModel)
-    }
+
 
     private val sessionStats: Flow<SessionStatsUseCase.SessionStats> = combine(
         eventReducer.messages.map { it[sessionId] ?: emptyList() },
@@ -126,7 +118,7 @@ class ChatViewModel @Inject constructor(
     }.distinctUntilChanged()
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val uiState: StateFlow<ChatUiState> = combine(
+    val sessionContent: StateFlow<ChatContentState> = combine(
         eventReducer.sessions.map { it[sessionId] },
         eventReducer.messages.map { it[sessionId] ?: emptyList() },
         eventReducer.parts,
@@ -162,128 +154,130 @@ class ChatViewModel @Inject constructor(
         partial to groupMessagesIntoTurns(partial.messages, partial.parts)
     }.distinctUntilChanged { (old, _), (new, _) ->
         old == new
-    }
-    .conflate()
-    .flatMapLatest { (partial, turns) ->
+    }.flatMapLatest { (partial, turns) ->
         combine(
-            eventReducer.sessionStatuses.map { it[sessionId] ?: SessionStatus.Idle },
-            _isLoading,
-            _isLoadingMore,
-            _isSending,
-            _error,
-        ) { status, loading, loadingMore, sending, err ->
-            ChatLoadingState(status, loading, loadingMore, sending, err)
-        }.flatMapLatest { loading ->
-            combine(
-                _selectorState,
-                modelSelectionUseCase.selectedVariant,
-            ) { selector, selVariant ->
-                SelectorState(selector, selVariant)
-            }.flatMapLatest { selector ->
-                _attachedImages.flatMapLatest { images ->
-                    val todosFlow = eventReducer.todos.map { it[sessionId] ?: emptyList() }
-                    combine(
-                        combine(draftRepository.getDraft(sessionId), sessionStats, childSessionIdsFlow, childSessionsFlow, eventReducer.ptySessions) { draft, stats, subSessionIds, childSessions, allPtys ->
-                            DraftCombineResult(draft, stats, subSessionIds, childSessions, allPtys)
-                        },
-                        todosFlow,
-                    ) { draftResult, todos ->
-                        val draft = draftResult.draft
-                        val stats = draftResult.stats
-                        val subSessionIds = draftResult.subSessionIds
-                        val childSessions = draftResult.childSessions
-                        val allPtys = draftResult.allPtys
-                        if (draft != null && !_draftSelectionRestored) {
-                            _draftSelectionRestored = true
-                            if (draft.selectedAgent != null) {
-                                modelSelectionUseCase.selectedAgent.value = draft.selectedAgent
-                            }
-                            if (draft.selectedModel != null) {
-                                modelSelectionUseCase.selectedModel.value = draft.selectedModel
-                            }
-                            if (draft.selectedVariant != null) {
-                                modelSelectionUseCase.selectedVariant.value = draft.selectedVariant
-                            }
-                        }
+            childSessionIdsFlow,
+            childSessionsFlow,
+            eventReducer.todos.map { it[sessionId] ?: emptyList() },
+        ) { subSessionIds, childSessions, todos ->
+            val enrichedTurns = if (subSessionIds.isNotEmpty()) {
+                turns.map { turn ->
+                    val subtaskPartIds = turn.partLookup.keys.map { it.partId }.toSet()
+                    turn.copy(
+                        childSessionIdLookup = subSessionIds.filterKeys { it in subtaskPartIds }
+                    )
+                }
+            } else turns
 
-                        // Inject per-turn childSessionIdLookup from global subSessionIds
-                        val enrichedTurns = if (subSessionIds.isNotEmpty()) {
-                            turns.map { turn ->
-                                val subtaskPartIds = turn.partLookup.keys.map { it.partId }.toSet()
-                                turn.copy(
-                                    childSessionIdLookup = subSessionIds.filterKeys { it in subtaskPartIds }
-                                )
-                            }
-                        } else turns
+            ChatContentState(
+                session = partial.session,
+                messages = partial.messages,
+                parts = partial.parts,
+                turns = enrichedTurns,
+                permissions = partial.permissions,
+                questions = partial.questions,
+                sessionDiffs = partial.sessionDiffs,
+                todos = todos,
+                childSessionIds = subSessionIds,
+                childSessions = childSessions,
+            )
+        }
+    }.flowOn(Dispatchers.Default)
+     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatContentState())
 
-                        ChatUiState(
-                            session = partial.session,
-                            messages = partial.messages,
-                            parts = partial.parts,
-                            turns = enrichedTurns,
-                            permissions = partial.permissions,
-                            questions = partial.questions,
-                            sessionDiffs = partial.sessionDiffs,
-                            sessionStatus = loading.status,
-                            isLoading = loading.isLoading,
-                            isLoadingMore = loading.isLoadingMore,
-                            hasOlderMessages = _hasOlderMessages.value,
-                            isSending = loading.isSending,
-                            error = loading.error,
-                            draftText = if (_draftCleared) "" else (draft?.text ?: ""),
-                            providers = selector.partial.providers,
-                            agents = selector.partial.agents,
-                            commands = selector.partial.commands,
-                            selectedAgent = selector.partial.selectedAgent,
-                            selectedModel = selector.partial.selectedModel,
-                            selectedVariant = selector.selectedVariant,
-                            contextUsagePercent = stats.contextUsagePercent,
-                            totalTokens = stats.totalTokens,
-                            totalCost = stats.totalCost,
-                            conversationTurns = stats.conversationTurns,
-                            draftImageUris = if (_draftCleared) emptyList() else (draft?.imageUris ?: emptyList()),
-                            attachedImages = images,
-                            mentions = _mentions.value,
-                            autoScrollEnabled = _autoScrollEnabled.value,
-                            childSessionIds = subSessionIds,
-                            childSessions = childSessions,
-                            chatFontSize = _chatFontSize.value,
-                            submittingQuestionIds = _submittingQuestionIds.value,
-                            activePtyCount = allPtys[serverId]?.count { (_, pty) -> pty.status != "exited" } ?: 0,
-                            commandMessage = _commandMessage.value,
-                            commandMessageId = _commandMessageId.value,
-                            shareUrl = _shareUrl.value,
-                            shareDisabled = modelSelectionUseCase.shareConfig.value == "disabled",
-                            todos = todos,
-                        )
-                    }
+    val loadingState: StateFlow<ChatLoadingState> = combine(
+        eventReducer.sessionStatuses.map { it[sessionId] ?: SessionStatus.Idle },
+        _isLoading,
+        _isLoadingMore,
+        _isSending,
+        _error,
+    ) { status, isLoading, isLoadingMore, isSending, error ->
+        ChatLoadingState(
+            sessionStatus = status,
+            isLoading = isLoading,
+            isLoadingMore = isLoadingMore,
+            isSending = isSending,
+            hasOlderMessages = _hasOlderMessages.value,
+            error = error,
+            submittingQuestionIds = _submittingQuestionIds.value,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatLoadingState())
+
+    val selectionState: StateFlow<ChatSelectionState> = combine(
+        modelSelectionUseCase.providers,
+        modelSelectionUseCase.agents,
+        modelSelectionUseCase.commands,
+        modelSelectionUseCase.selectedAgent,
+        modelSelectionUseCase.selectedModel,
+        modelSelectionUseCase.selectedVariant,
+        modelSelectionUseCase.shareConfig,
+    ) { array ->
+        val providers = array[0] as List<Provider>
+        val agents = array[1] as List<AgentConfig>
+        val commands = array[2] as List<CommandInfo>
+        val selAgent = array[3] as String?
+        val selModel = array[4] as ModelRef?
+        val selVariant = array[5] as String?
+        val shareConfig = array[6] as String
+        ChatSelectionState(
+            providers = providers,
+            agents = agents,
+            commands = commands,
+            selectedAgent = selAgent,
+            selectedModel = selModel,
+            selectedVariant = selVariant,
+            shareDisabled = shareConfig == "disabled",
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatSelectionState())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val inputState: StateFlow<ChatInputState> = draftRepository.getDraft(sessionId)
+        .flatMapLatest { draft ->
+            if (draft != null && !_draftSelectionRestored) {
+                _draftSelectionRestored = true
+                if (draft.selectedAgent != null) {
+                    modelSelectionUseCase.selectedAgent.value = draft.selectedAgent
+                }
+                if (draft.selectedModel != null) {
+                    modelSelectionUseCase.selectedModel.value = draft.selectedModel
+                }
+                if (draft.selectedVariant != null) {
+                    modelSelectionUseCase.selectedVariant.value = draft.selectedVariant
                 }
             }
+            combine(
+                flowOf(draft),
+                _attachedImages,
+                _mentions,
+            ) { d, images, mentions ->
+                ChatInputState(
+                    draftText = if (_draftCleared) "" else (d?.text ?: ""),
+                    draftImageUris = if (_draftCleared) emptyList() else (d?.imageUris ?: emptyList()),
+                    attachedImages = images,
+                    mentions = mentions,
+                )
+            }
         }
-    }
-    .flowOn(Dispatchers.Default)
-    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatInputState())
 
-    private data class SelectorPartialState(
-        val providers: List<Provider>,
-        val agents: List<AgentConfig>,
-        val commands: List<CommandInfo>,
-        val selectedAgent: String?,
-        val selectedModel: ModelRef?,
-    )
+    val statsState: StateFlow<ChatStatsState> = combine(
+        sessionStats,
+        eventReducer.ptySessions,
+    ) { stats, allPtys ->
+        ChatStatsState(
+            contextUsagePercent = stats.contextUsagePercent,
+            totalTokens = stats.totalTokens,
+            totalCost = stats.totalCost,
+            conversationTurns = stats.conversationTurns,
+            activePtyCount = allPtys[serverId]?.count { (_, pty) -> pty.status != "exited" } ?: 0,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatStatsState())
 
-    private data class DraftCombineResult(
-        val draft: ChatDraft?,
-        val stats: SessionStatsUseCase.SessionStats,
-        val subSessionIds: Map<String, String>,
-        val childSessions: List<ChildSessionInfo>,
-        val allPtys: Map<String, Map<String, PtyInfo>>,
-    )
-
-    private data class SelectorState(
-        val partial: SelectorPartialState,
-        val selectedVariant: String?,
-    )
+    val chatFontSize: StateFlow<String> = _chatFontSize
+    val autoScrollEnabled: StateFlow<Boolean> = _autoScrollEnabled.asStateFlow()
+    val commandMessage: StateFlow<String?> = _commandMessage.asStateFlow()
+    val commandMessageId: StateFlow<Long> = _commandMessageId.asStateFlow()
+    val shareUrl: StateFlow<String?> = _shareUrl.asStateFlow()
 
     private data class ChatPartialState(
         val session: Session?,
@@ -293,14 +287,6 @@ class ChatViewModel @Inject constructor(
         val questions: List<QuestionRequest>,
         val sessionDiffs: List<FileDiff>,
         val allSessions: Map<String, Session>,
-    )
-
-    private data class ChatLoadingState(
-        val status: SessionStatus,
-        val isLoading: Boolean,
-        val isLoadingMore: Boolean,
-        val isSending: Boolean,
-        val error: String?,
     )
 
     init {
@@ -509,7 +495,7 @@ class ChatViewModel @Inject constructor(
                 selectedAgent = modelSelectionUseCase.selectedAgent.value,
                 selectedModel = modelSelectionUseCase.selectedModel.value,
                 selectedVariant = modelSelectionUseCase.selectedVariant.value,
-                draftImageUris = uiState.value.draftImageUris,
+                draftImageUris = inputState.value.draftImageUris,
                 sessionDirectory = eventReducer.sessions.value[sessionId]?.directory,
             )
 
@@ -610,7 +596,7 @@ class ChatViewModel @Inject constructor(
                 modelSelectionUseCase.selectedAgent.value,
                 modelSelectionUseCase.selectedModel.value,
                 modelSelectionUseCase.selectedVariant.value,
-                uiState.value.draftImageUris,
+                inputState.value.draftImageUris,
             )
         }
     }
@@ -622,9 +608,8 @@ class ChatViewModel @Inject constructor(
                 modelSelectionUseCase.selectedAgent.value,
                 modelSelectionUseCase.selectedModel.value,
                 modelSelectionUseCase.selectedVariant.value,
-                uiState.value.draftImageUris,
+                inputState.value.draftImageUris,
             )
-            // The draft flow will emit the updated image URIs, no manual state needed
         }
     }
 
@@ -635,7 +620,7 @@ class ChatViewModel @Inject constructor(
                 modelSelectionUseCase.selectedAgent.value,
                 modelSelectionUseCase.selectedModel.value,
                 modelSelectionUseCase.selectedVariant.value,
-                uiState.value.draftImageUris,
+                inputState.value.draftImageUris,
             )
         }
     }
