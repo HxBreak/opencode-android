@@ -553,11 +553,12 @@ class DialogTriggers {
 
 @Composable
 internal fun ChatDialogHost(
-    content: ChatContentState,
+    turns: ChatTurnState,
+    meta: ChatMetaState,
     callbacks: ChatCallbacks,
     dialogTriggers: DialogTriggers,
 ) {
-    content.permissions.firstOrNull()?.let { request ->
+    meta.permissions.firstOrNull()?.let { request ->
         PermissionDialog(
             request = request,
             onReply = callbacks.onReplyPermission,
@@ -566,7 +567,7 @@ internal fun ChatDialogHost(
     }
 
     dialogTriggers.revertMessageId?.let { messageId ->
-        val turn = content.turns.find { it.userMessage.id == messageId }
+        val turn = turns.turns.find { it.userMessage.id == messageId }
         val messagePreview = turn?.userMessage?.parts
             ?.filterIsInstance<Part.Text>()
             ?.firstOrNull()
@@ -582,7 +583,7 @@ internal fun ChatDialogHost(
 
     if (dialogTriggers.showRename) {
         RenameSessionDialog(
-            currentTitle = content.session?.title?.ifEmpty { "Chat" } ?: "Chat",
+            currentTitle = meta.session?.title?.ifEmpty { "Chat" } ?: "Chat",
             onConfirm = { newTitle -> callbacks.onRenameSession(newTitle) },
             onDismiss = { dialogTriggers.clearRename() },
         )

@@ -96,7 +96,8 @@ fun ChatRoute(
     onNavigateToFullScreenEditor: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
-    val content by viewModel.sessionContent.collectAsStateWithLifecycle()
+    val turns by viewModel.turnState.collectAsStateWithLifecycle()
+    val meta by viewModel.metaState.collectAsStateWithLifecycle()
     val loading by viewModel.loadingState.collectAsStateWithLifecycle()
     val selection by viewModel.selectionState.collectAsStateWithLifecycle()
     val input by viewModel.inputState.collectAsStateWithLifecycle()
@@ -117,10 +118,10 @@ fun ChatRoute(
     }
 
     // Debug: log state changes for tracking real-time update issues
-    LaunchedEffect(content.messages.size, loading.sessionStatus) {
-        Log.d("ChatScreen", "state: msgs=${content.messages.size}, turns=${content.turns.size}, status=${loading.sessionStatus}, " +
-            "partsKeys=${content.parts.size}, permissions=${content.permissions.size}, " +
-            "questions=${content.questions.size}, isLoading=${loading.isLoading}")
+    LaunchedEffect(turns.turns.size, loading.sessionStatus) {
+        Log.d("ChatScreen", "state: turns=${turns.turns.size}, status=${loading.sessionStatus}, " +
+            "permissions=${meta.permissions.size}, " +
+            "questions=${meta.questions.size}, isLoading=${loading.isLoading}")
     }
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -216,7 +217,8 @@ fun ChatRoute(
     }
 
     ChatScreen(
-        content = content,
+        turns = turns,
+        meta = meta,
         loading = loading,
         selection = selection,
         input = input,
@@ -238,7 +240,8 @@ fun ChatRoute(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
-    content: ChatContentState,
+    turns: ChatTurnState,
+    meta: ChatMetaState,
     loading: ChatLoadingState,
     selection: ChatSelectionState,
     input: ChatInputState,
@@ -260,8 +263,8 @@ fun ChatScreen(
     var pendingScrollOffset by remember { mutableStateOf(0) }
 
     var sentinelVisible by rememberSaveable { mutableStateOf(true) }
-    LaunchedEffect(content.childSessions.size) {
-        if (content.childSessions.isNotEmpty()) {
+    LaunchedEffect(meta.childSessions.size) {
+        if (meta.childSessions.isNotEmpty()) {
             sentinelVisible = true
         }
     }
@@ -275,7 +278,7 @@ fun ChatScreen(
     }
 
     // Auto-scroll to bottom only when user is near bottom and new content arrives
-    val turnsSnapshot = content.turns
+    val turnsSnapshot = turns.turns
 
     val lastTurn = turnsSnapshot.lastOrNull()
     val contentFingerprint = if (autoScrollEnabled) {
@@ -362,7 +365,8 @@ fun ChatScreen(
     }
 
     ChatDialogHost(
-        content = content,
+        turns = turns,
+        meta = meta,
         callbacks = callbacks,
         dialogTriggers = dialogTriggers,
     )
@@ -381,16 +385,16 @@ fun ChatScreen(
         },
         topBar = {
             ChatTopBar(
-                sessionTitle = content.session?.title?.ifEmpty { "Chat" } ?: "Chat",
+                sessionTitle = meta.session?.title?.ifEmpty { "Chat" } ?: "Chat",
                 totalTokens = stats.totalTokens,
-                isShared = content.session?.share != null,
+                isShared = meta.session?.share != null,
                 sessionStatus = loading.sessionStatus,
                 showMenu = showMenu,
                 onShowMenuChange = { showMenu = it },
                 scrollBehavior = scrollBehavior,
                 callbacks = callbacks,
                 onRenameSession = { dialogTriggers.triggerRename() },
-                hasRevert = content.session?.revert != null,
+                hasRevert = meta.session?.revert != null,
             )
         },
         bottomBar = {
@@ -398,19 +402,19 @@ fun ChatScreen(
                 // Todo sentinel — appears above input bar when todos exist
                 var todoSentinelVisible by remember { mutableStateOf(true) }
                 AnimatedVisibility(
-                    visible = todoSentinelVisible && content.todos.isNotEmpty(),
+                    visible = todoSentinelVisible && meta.todos.isNotEmpty(),
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut(),
                 ) {
                     TodoSentinel(
                         modifier = Modifier.padding(top = 4.dp),
-                        todos = content.todos,
+                        todos = meta.todos,
                         onDismiss = { todoSentinelVisible = false },
                     )
                 }
                 // Reset sentinel visibility when active (non-completed) todos appear
-                LaunchedEffect(content.todos.size, content.todos.any { it.status != "completed" && it.status != "cancelled" }) {
-                    val hasActive = content.todos.any { it.status != "completed" && it.status != "cancelled" }
+                LaunchedEffect(meta.todos.size, meta.todos.any { it.status != "completed" && it.status != "cancelled" }) {
+                    val hasActive = meta.todos.any { it.status != "completed" && it.status != "cancelled" }
                     if (hasActive) {
                         todoSentinelVisible = true
                     }
@@ -440,7 +444,7 @@ fun ChatScreen(
                 },
                 sessionStatus = loading.sessionStatus,
                 isSending = loading.isSending,
-                sessionTitle = content.session?.title?.ifEmpty { "" } ?: "",
+                sessionTitle = meta.session?.title?.ifEmpty { "" } ?: "",
                 stats = stats,
                 selection = selection,
                 attachedImages = input.attachedImages,
@@ -459,7 +463,7 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            if (content.messages.isEmpty() && !loading.isLoading) {
+            if (turns.turns.isEmpty() && !loading.isLoading) {
                 ChatEmptyState()
             } else {
                 LazyColumn(
@@ -489,10 +493,10 @@ fun ChatScreen(
                     }
 
                     items(
-                        items = content.turns,
+                        items = turns.turns,
                         key = { it.turnId },
                     ) { turn ->
-                        val isLastTurn = turn.turnId == content.turns.lastOrNull()?.turnId
+                        val isLastTurn = turn.turnId == turns.turns.lastOrNull()?.turnId
                         val isActiveSession = loading.sessionStatus is SessionStatus.Busy
 
                         TurnBubble(
@@ -508,7 +512,7 @@ fun ChatScreen(
 
                     // Pending question cards at bottom of message list
                     items(
-                        items = content.questions,
+                        items = meta.questions,
                         key = { "question_${it.id}" },
                     ) { question ->
                         QuestionCard(
@@ -531,24 +535,24 @@ fun ChatScreen(
             }
 
             AnimatedVisibility(
-                visible = sentinelVisible && content.childSessions.isNotEmpty(),
+                visible = sentinelVisible && meta.childSessions.isNotEmpty(),
                 enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
                 modifier = Modifier.align(Alignment.TopCenter),
             ) {
                 HoverSentinel(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    childSessions = content.childSessions,
+                    childSessions = meta.childSessions,
                     onNavigateToSession = callbacks.onNavigateToSession,
                     onDismiss = { sentinelVisible = false },
                 )
             }
 
             // Floating message navigation buttons
-            if (content.turns.size > 3) {
+            if (turns.turns.size > 3) {
                 MessageNavigationButtons(
                     listState = listState,
-                    turnCount = content.turns.size,
+                    turnCount = turns.turns.size,
                     isLoadingMore = loading.isLoadingMore,
                     autoScrollEnabled = autoScrollEnabled,
                     onAutoScrollToggled = callbacks.onAutoScrollToggled,

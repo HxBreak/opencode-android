@@ -34,6 +34,22 @@ data class ChatTurn(
     val childSessionIdLookup: Map<String, String> = emptyMap(),
 )
 
+/** High-frequency: SSE token stream drives this — only LazyColumn subscribes */
+data class ChatTurnState(
+    val turns: List<ChatTurn> = emptyList(),
+)
+
+/** Low-frequency: session metadata — TopBar, TodoSentinel, HoverSentinel etc. subscribe */
+data class ChatMetaState(
+    val session: Session? = null,
+    val permissions: List<PermissionRequest> = emptyList(),
+    val questions: List<QuestionRequest> = emptyList(),
+    val sessionDiffs: List<FileDiff> = emptyList(),
+    val todos: List<Todo> = emptyList(),
+    val childSessionIds: Map<String, String> = emptyMap(),
+    val childSessions: List<ChildSessionInfo> = emptyList(),
+)
+
 /** Core session content driven by SSE events through EventReducer */
 data class ChatContentState(
     val session: Session? = null,

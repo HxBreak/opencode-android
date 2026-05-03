@@ -184,6 +184,28 @@ class ChatViewModel @Inject constructor(
     }.flowOn(Dispatchers.Default)
      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatContentState())
 
+    val turnState: StateFlow<ChatTurnState> = sessionContent
+        .map { ChatTurnState(it.turns) }
+        .distinctUntilChanged()
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatTurnState())
+
+    val metaState: StateFlow<ChatMetaState> = sessionContent
+        .map {
+            ChatMetaState(
+                session = it.session,
+                permissions = it.permissions,
+                questions = it.questions,
+                sessionDiffs = it.sessionDiffs,
+                todos = it.todos,
+                childSessionIds = it.childSessionIds,
+                childSessions = it.childSessions,
+            )
+        }
+        .distinctUntilChanged()
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatMetaState())
+
     val loadingState: StateFlow<ChatLoadingState> = combine(
         eventReducer.sessionStatuses.map { it[sessionId] ?: SessionStatus.Idle },
         _isLoading,
