@@ -68,8 +68,8 @@ class ChatViewModel @Inject constructor(
     private val _isSending = MutableStateFlow(false)
     internal val _error = MutableStateFlow<String?>(null)
     private val showError: (String) -> Unit = { msg -> _error.value = msg }
-    private val _commandMessage = MutableStateFlow<String?>(null)
-    private val _commandMessageId = MutableStateFlow(0L)
+    private val _uiEvents = MutableSharedFlow<ChatUiEvent>(extraBufferCapacity = 5)
+    val uiEvents: SharedFlow<ChatUiEvent> = _uiEvents.asSharedFlow()
     private val _isLoading = MutableStateFlow(false)
     private val _isLoadingMore = MutableStateFlow(false)
     private val _hasOlderMessages = MutableStateFlow(true)
@@ -82,7 +82,6 @@ class ChatViewModel @Inject constructor(
     private val _attachedImages = MutableStateFlow<List<AttachedImage>>(emptyList())
     private val _mentions = MutableStateFlow<List<MentionItem>>(emptyList())
     private val _autoScrollEnabled = MutableStateFlow(true)
-    private val _shareUrl = MutableStateFlow<String?>(null)
     private val _chatFontSize = settingsRepository.chatFontSize.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), "medium"
     )
@@ -275,9 +274,6 @@ class ChatViewModel @Inject constructor(
 
     val chatFontSize: StateFlow<String> = _chatFontSize
     val autoScrollEnabled: StateFlow<Boolean> = _autoScrollEnabled.asStateFlow()
-    val commandMessage: StateFlow<String?> = _commandMessage.asStateFlow()
-    val commandMessageId: StateFlow<Long> = _commandMessageId.asStateFlow()
-    val shareUrl: StateFlow<String?> = _shareUrl.asStateFlow()
 
     private data class ChatPartialState(
         val session: Session?,
@@ -726,20 +722,15 @@ class ChatViewModel @Inject constructor(
             viewModelScope.launch {
                 when (val result = chatCommandUseCase.execute(command, serverId, sessionId)) {
                     is ChatCommandUseCase.CommandResult.Error -> _error.value = result.message
-                    is ChatCommandUseCase.CommandResult.ShareSuccess -> _shareUrl.value = result.url
-                    is ChatCommandUseCase.CommandResult.Handled -> {
-                        _commandMessage.value = "/${command.id} executed"
-                        _commandMessageId.value = System.currentTimeMillis()
-                    }
+                    is ChatCommandUseCase.CommandResult.ShareSuccess ->
+                        _uiEvents.emit(ChatUiEvent.ShowShareDialog(result.url))
+                    is ChatCommandUseCase.CommandResult.Handled ->
+                        _uiEvents.emit(ChatUiEvent.ShowSnackbar("/${command.id} executed"))
                     else -> {}
                 }
             }
         }
         return isLocal
-    }
-
-    fun dismissShareDialog() {
-        _shareUrl.value = null
     }
 
     companion object {

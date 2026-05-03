@@ -109,10 +109,18 @@ fun ChatRoute(
     val stats by viewModel.statsState.collectAsStateWithLifecycle()
     val chatFontSize by viewModel.chatFontSize.collectAsStateWithLifecycle()
     val autoScrollEnabled by viewModel.autoScrollEnabled.collectAsStateWithLifecycle()
-    val shareUrl by viewModel.shareUrl.collectAsStateWithLifecycle()
-    val commandMessage by viewModel.commandMessage.collectAsStateWithLifecycle()
-    val commandMessageId by viewModel.commandMessageId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    var shareDialogUrl by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        viewModel.uiEvents.collect { event ->
+            when (event) {
+                is ChatUiEvent.ShowSnackbar -> snackbarHostState.showSnackbar(event.message)
+                is ChatUiEvent.ShowShareDialog -> shareDialogUrl = event.url
+            }
+        }
+    }
 
     // Debug: log state changes for tracking real-time update issues
     LaunchedEffect(content.messages.size, loading.sessionStatus) {
@@ -156,9 +164,7 @@ fun ChatRoute(
         stats = stats,
         chatFontSize = chatFontSize,
         autoScrollEnabled = autoScrollEnabled,
-        shareUrl = shareUrl,
-        commandMessage = commandMessage,
-        commandMessageId = commandMessageId,
+        snackbarHostState = snackbarHostState,
         onSendMessage = { viewModel.sendMessage(it) },
         onAbort = { viewModel.abortSession() },
         onReplyPermission = { id, reply -> viewModel.replyPermission(id, reply) },
@@ -222,11 +228,10 @@ fun ChatRoute(
         onNavigateToFullScreenEditor = onNavigateToFullScreenEditor,
     )
 
-    // Share URL dialog — triggered by /share command
-    shareUrl?.let { url ->
+    shareDialogUrl?.let { url ->
         ShareUrlDialog(
             url = url,
-            onDismiss = { viewModel.dismissShareDialog() },
+            onDismiss = { shareDialogUrl = null },
         )
     }
 }
@@ -241,9 +246,7 @@ fun ChatScreen(
     stats: ChatStatsState,
     chatFontSize: String,
     autoScrollEnabled: Boolean,
-    shareUrl: String?,
-    commandMessage: String?,
-    commandMessageId: Long,
+    snackbarHostState: SnackbarHostState,
     onSendMessage: (String) -> Unit,
     onAbort: () -> Unit,
     onReplyPermission: (String, String) -> Unit,
@@ -277,7 +280,6 @@ fun ChatScreen(
 ) {
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val listState = rememberLazyListState()
-    val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var inputText by remember(input.draftText) { mutableStateOf(input.draftText) }
     var showMenu by remember { mutableStateOf(false) }
@@ -400,13 +402,6 @@ fun ChatScreen(
     LaunchedEffect(currentError) {
         if (currentError != null) {
             snackbarHostState.showSnackbar(currentError)
-        }
-    }
-
-    val cmdMessage = commandMessage
-    LaunchedEffect(commandMessageId) {
-        if (cmdMessage != null) {
-            snackbarHostState.showSnackbar(cmdMessage)
         }
     }
 

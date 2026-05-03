@@ -84,3 +84,9 @@ data class ChatStatsState(
     val conversationTurns: Int = 0,
     val activePtyCount: Int = 0,
 )
+
+/** One-time UI events that should not survive config changes. */
+sealed class ChatUiEvent {
+    data class ShowSnackbar(val message: String) : ChatUiEvent()
+    data class ShowShareDialog(val url: String) : ChatUiEvent()
+}
