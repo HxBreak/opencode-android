@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.unit.dp
+import me.xiaok.opencode.domain.model.Part
 import me.xiaok.opencode.domain.model.PermissionRequest
 import me.xiaok.opencode.domain.model.QuestionRequest
 
@@ -532,4 +533,81 @@ fun ShareUrlDialog(
             }
         },
     )
+}
+
+class DialogTriggers {
+    var revertMessageId by mutableStateOf<String?>(null)
+        private set
+    var deleteMessageId by mutableStateOf<String?>(null)
+        private set
+    var showRename by mutableStateOf(false)
+        private set
+
+    fun showRevert(messageId: String) { revertMessageId = messageId }
+    fun clearRevert() { revertMessageId = null }
+    fun showDelete(messageId: String) { deleteMessageId = messageId }
+    fun clearDelete() { deleteMessageId = null }
+    fun triggerRename() { showRename = true }
+    fun clearRename() { showRename = false }
+}
+
+@Composable
+internal fun ChatDialogHost(
+    content: ChatContentState,
+    callbacks: ChatCallbacks,
+    dialogTriggers: DialogTriggers,
+) {
+    content.permissions.firstOrNull()?.let { request ->
+        PermissionDialog(
+            request = request,
+            onReply = callbacks.onReplyPermission,
+            onDismiss = {},
+        )
+    }
+
+    dialogTriggers.revertMessageId?.let { messageId ->
+        val turn = content.turns.find { it.userMessage.id == messageId }
+        val messagePreview = turn?.userMessage?.parts
+            ?.filterIsInstance<Part.Text>()
+            ?.firstOrNull()
+            ?.text
+            ?: ""
+
+        RevertConfirmationDialog(
+            messagePreview = messagePreview,
+            onConfirm = { callbacks.onRevertSession(messageId) },
+            onDismiss = { dialogTriggers.clearRevert() },
+        )
+    }
+
+    if (dialogTriggers.showRename) {
+        RenameSessionDialog(
+            currentTitle = content.session?.title?.ifEmpty { "Chat" } ?: "Chat",
+            onConfirm = { newTitle -> callbacks.onRenameSession(newTitle) },
+            onDismiss = { dialogTriggers.clearRename() },
+        )
+    }
+
+    dialogTriggers.deleteMessageId?.let { messageId ->
+        AlertDialog(
+            onDismissRequest = { dialogTriggers.clearDelete() },
+            title = { Text("Delete message") },
+            text = { Text("Are you sure you want to delete this message? This action cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        callbacks.onDeleteMessage(messageId)
+                        dialogTriggers.clearDelete()
+                    },
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { dialogTriggers.clearDelete() }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
 }

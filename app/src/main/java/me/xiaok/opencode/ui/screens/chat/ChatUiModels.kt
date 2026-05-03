@@ -144,6 +144,11 @@ data class ChatCallbacks(
     val onExportSession: () -> Unit = {},
     val onBuiltInCommand: (BuiltInCommand) -> Unit = {},
 
+    // Dialog triggers
+    val onShowRevertConfirm: (String) -> Unit = {},
+    val onShowDeleteConfirm: (String) -> Unit = {},
+    val onShowRename: () -> Unit = {},
+
     // Navigation
     val onNavigateBack: () -> Unit = {},
     val onNavigateToSession: (String) -> Unit = {},

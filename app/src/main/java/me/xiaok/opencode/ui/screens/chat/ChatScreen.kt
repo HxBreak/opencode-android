@@ -34,7 +34,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,7 +43,6 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
@@ -256,21 +254,7 @@ fun ChatScreen(
     var inputText by remember(input.draftText) { mutableStateOf(input.draftText) }
     var showMenu by remember { mutableStateOf(false) }
 
-    // Active permission dialog (show first of each)
-    val activePermission = content.permissions.firstOrNull()
-
-    // Revert confirmation dialog
-    var revertMessageId by remember { mutableStateOf<String?>(null) }
-
-    var deleteMessageId by remember { mutableStateOf<String?>(null) }
-
-    val onDeleteMessageRemembered = remember {{ id: String -> deleteMessageId = id }}
-    val onRevertSessionRemembered = remember {{ id: String -> revertMessageId = id }}
-
-    // Delete session confirmation dialog
-
-    // Rename dialog
-    var showRenameDialog by remember { mutableStateOf(false) }
+    val dialogTriggers = remember { DialogTriggers() }
 
     var previousMessageCount by remember { mutableStateOf(0) }
     var pendingScrollOffset by remember { mutableStateOf(0) }
@@ -377,69 +361,11 @@ fun ChatScreen(
         }
     }
 
-    // Permission dialog
-    activePermission?.let { request ->
-        PermissionDialog(
-            request = request,
-            onReply = callbacks.onReplyPermission,
-            onDismiss = {},
-        )
-    }
-
-
-
-
-
-    // Revert confirmation dialog
-    revertMessageId?.let { messageId ->
-        val turn = content.turns.find { it.userMessage.id == messageId }
-        val messagePreview = turn?.userMessage?.parts
-            ?.filterIsInstance<Part.Text>()
-            ?.firstOrNull()
-            ?.text
-            ?: ""
-
-        RevertConfirmationDialog(
-            messagePreview = messagePreview,
-            onConfirm = { callbacks.onRevertSession(messageId) },
-            onDismiss = { revertMessageId = null },
-        )
-    }
-
-    // Rename session dialog
-    if (showRenameDialog) {
-        RenameSessionDialog(
-            currentTitle = content.session?.title?.ifEmpty { "Chat" } ?: "Chat",
-            onConfirm = { newTitle ->
-                callbacks.onRenameSession(newTitle)
-            },
-            onDismiss = { showRenameDialog = false },
-        )
-    }
-
-    // Delete confirmation dialog
-    deleteMessageId?.let { messageId ->
-        AlertDialog(
-            onDismissRequest = { deleteMessageId = null },
-            title = { Text("Delete message") },
-            text = { Text("Are you sure you want to delete this message? This action cannot be undone.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        callbacks.onDeleteMessage(messageId)
-                        deleteMessageId = null
-                    },
-                ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteMessageId = null }) {
-                    Text("Cancel")
-                }
-            },
-        )
-    }
+    ChatDialogHost(
+        content = content,
+        callbacks = callbacks,
+        dialogTriggers = dialogTriggers,
+    )
 
     Scaffold(
         modifier = Modifier
@@ -463,7 +389,7 @@ fun ChatScreen(
                 onShowMenuChange = { showMenu = it },
                 scrollBehavior = scrollBehavior,
                 callbacks = callbacks,
-                onRenameSession = { showRenameDialog = true },
+                onRenameSession = { dialogTriggers.triggerRename() },
                 hasRevert = content.session?.revert != null,
             )
         },
@@ -572,8 +498,8 @@ fun ChatScreen(
                         TurnBubble(
                             turn = turn,
                             callbacks = callbacks,
-                            onDeleteMessage = onDeleteMessageRemembered,
-                            onRevertSession = onRevertSessionRemembered,
+                            onDeleteMessage = { id -> dialogTriggers.showDelete(id) },
+                            onRevertSession = { id -> dialogTriggers.showRevert(id) },
                             fontSize = chatFontSize,
                             isLastTurn = isLastTurn,
                             isActiveSession = isActiveSession,
