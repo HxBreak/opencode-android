@@ -6,16 +6,6 @@ An Android client for [OpenCode](https://opencode.ai/) — an open-source AI cod
 
 This project is forked from [OC Remote](https://play.google.com/store/apps/details?id=dev.minios.ocremote) (the official OpenCode Remote Android app), rebuilding it with an MVI + EventReducer architecture for improved state management and extensibility.
 
-## Architecture
-
-**MVI + EventReducer (Redux-like)** — SSE event-driven architecture. All real-time events flow through a central `EventReducer`, exposing immutable `StateFlow`s that ViewModels subscribe to, driving Compose UI re-composition.
-
-```
-SSE Event → EventReducer → StateFlow → ViewModel → Compose UI
-```
-
-For detailed architecture documentation, see [ARCHITECTURE.md](./ARCHITECTURE.md).
-
 ## Screenshots
 
 <p align="center">
@@ -28,6 +18,8 @@ For detailed architecture documentation, see [ARCHITECTURE.md](./ARCHITECTURE.md
 ## Project Status
 
 🚧 **Early Development** — Architecture planning complete, implementation starting.
+
+> Note: This project was previously developed primarily with the GLM-5.1 model. Development has slowed recently due to current token costs.
 
 ## Build
 
